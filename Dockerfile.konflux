@@ -1,0 +1,58 @@
+# Build arguments
+ARG SOURCE_CODE=.
+ARG CI_CONTAINER_VERSION="unknown"
+
+FROM registry.redhat.io/ubi8/go-toolset@sha256:4ec05fd5b355106cc0d990021a05b71bbfb9231e4f5bdc0c5316515edf6a1c96 as builder
+
+ARG SOURCE_CODE
+
+WORKDIR /workspace
+
+# Copy the Go Modules manifests
+COPY go.mod go.mod
+COPY go.sum go.sum
+# cache deps before building and copying source so that we don't need to re-download as much
+# and so that source changes don't invalidate our downloaded layer
+RUN go mod download
+
+# Copy the go source
+COPY main.go main.go
+COPY api/ api/
+COPY controllers/ controllers/
+COPY config/internal config/internal
+
+USER root
+# Build
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager main.go
+
+FROM registry.redhat.io/ubi8/ubi-minimal@sha256:7583ca0ea52001562bd81a961da3f75222209e6192e4e413ee226cff97dbd48c AS runtime
+
+## Build args to be used at this step
+ARG CI_CONTAINER_VERSION
+ARG USER=65532
+
+LABEL com.redhat.component="odh-data-science-pipelines-operator-controller-container" \
+      name="managed-open-data-hub/odh-data-science-pipelines-operator-controller-rhel8" \
+      version="${CI_CONTAINER_VERSION}" \
+      git.url="${CI_DATA_SCIENCE_PIPELINES_OPERATOR_UPSTREAM_URL}" \
+      git.commit="${CI_DATA_SCIENCE_PIPELINES_OPERATOR_UPSTREAM_COMMIT}" \
+      summary="odh-data-science-pipelines-operator-controller" \
+      io.openshift.expose-services="" \
+      io.k8s.display-name="data-science-pipelines-operator-controller" \
+      maintainer="['managed-open-data-hub@redhat.com']" \
+      description="Manages lifecycle of Data Science Pipelines Custom Resources and associated Kubernetes resources" \
+      com.redhat.license_terms="https://www.redhat.com/licenses/Red_Hat_Standard_EULA_20191108.pdf"
+
+## Install additional packages
+# TODO: is this needed?
+RUN microdnf install -y shadow-utils &&\
+    microdnf clean all
+
+WORKDIR /
+COPY --from=builder /workspace/manager .
+COPY --from=builder /workspace/config/internal ./config/internal
+
+## Create a non-root user with UID 65532 and switch to it
+USER ${USER}:${USER}
+
+ENTRYPOINT ["/manager"]
