@@ -286,7 +286,7 @@ spec:
         - release=$(tasks.clone-repository.results.commit-timestamp)
         - git.url=$(params.git-url)
         - git.commit=$(params.revision)
-        - io.openshift.tags="odh-data-science-pipelines-operator-controller"
+        - io.openshift.tags=odh-data-science-pipelines-operator-controller
       - name: SOURCE_ARTIFACT
         value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
       - name: CACHI2_ARTIFACT
