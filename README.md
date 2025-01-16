@@ -458,7 +458,7 @@ Simply clone the directory and execute `make test`.
 To run it without `make` you can run the following: 
 ```bash
 tmpFolder=$(mktemp -d)
-go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.17
 export KUBEBUILDER_ASSETS=$(${GOPATH}/bin/setup-envtest use 1.25.0 --bin-dir ${tmpFolder}/bin -p path)
 go test ./... -coverprofile cover.out
 
