@@ -1,0 +1,54 @@
+# Build arguments
+ARG SOURCE_CODE=.
+
+FROM registry.redhat.io/ubi8/go-toolset:1.21@sha256:742ae6ec1aef3e7faae488c47695fb64964d342aefecf52d23bd9d5e6731d0b6 as builder
+
+ARG SOURCE_CODE
+
+WORKDIR /workspace
+
+# Copy the Go Modules manifests
+COPY go.mod go.mod
+COPY go.sum go.sum
+# cache deps before building and copying source so that we don't need to re-download as much
+# and so that source changes don't invalidate our downloaded layer
+RUN go mod download
+
+# Copy the go source
+COPY main.go main.go
+COPY api/ api/
+COPY controllers/ controllers/
+COPY config/internal config/internal
+
+USER root
+# Build
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager main.go
+
+FROM registry.redhat.io/ubi8/ubi-minimal@sha256:c12e67af6a7e15113d76bc72f10bef2045c026c71ec8b7124c8a075458188a83 AS runtime
+
+## Build args to be used at this step
+ARG USER=65532
+
+LABEL com.redhat.component="odh-data-science-pipelines-operator-controller-container" \
+      name="managed-open-data-hub/odh-data-science-pipelines-operator-controller-rhel8" \
+      description="Manages lifecycle of Data Science Pipelines Custom Resources and associated Kubernetes resources" \
+      summary="odh-data-science-pipelines-operator-controller" \
+      maintainer="['managed-open-data-hub@redhat.com']" \
+      io.openshift.expose-services="" \
+      io.k8s.display-name="data-science-pipelines-operator-controller" \
+      io.k8s.description="data-science-pipelines-operator-controller" \
+      com.redhat.license_terms="https://www.redhat.com/licenses/Red_Hat_Standard_EULA_20191108.pdf"
+
+## Install additional packages
+# TODO: is this needed?
+RUN microdnf install -y shadow-utils &&\
+    microdnf clean all
+
+WORKDIR /
+COPY --from=builder /workspace/manager .
+COPY --from=builder /workspace/config/internal ./config/internal
+
+## Create a non-root user with UID 65532 and switch to it
+USER ${USER}:${USER}
+
+ENTRYPOINT ["/manager"]
