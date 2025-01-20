@@ -1,0 +1,6 @@
+contentOrigin:
+  repofiles:
+    - ubi.repo
+packages:
+  - shadow-utils
+  
