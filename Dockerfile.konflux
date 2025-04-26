@@ -39,11 +39,6 @@ LABEL com.redhat.component="odh-data-science-pipelines-operator-controller-conta
       io.k8s.description="data-science-pipelines-operator-controller" \
       com.redhat.license_terms="https://www.redhat.com/licenses/Red_Hat_Standard_EULA_20191108.pdf"
 
-## Install additional packages
-# TODO: is this needed?
-RUN microdnf install -y shadow-utils &&\
-    microdnf clean all
-
 WORKDIR /
 COPY --from=builder /workspace/manager .
 COPY --from=builder /workspace/config/internal ./config/internal
