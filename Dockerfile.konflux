@@ -1,7 +1,7 @@
 # Build arguments
 ARG SOURCE_CODE=.
 
-FROM registry.redhat.io/ubi8/go-toolset:1.21@sha256:742ae6ec1aef3e7faae488c47695fb64964d342aefecf52d23bd9d5e6731d0b6 as builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.22@sha256:e4193e71ea9f2e2504f6b4ee93cadef0fe5d7b37bba57484f4d4229801a7c063 as builder
 
 ARG SOURCE_CODE
 
@@ -22,9 +22,9 @@ COPY config/internal config/internal
 
 USER root
 # Build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager main.go
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 GO111MODULE=on GOEXPERIMENT=strictfipsruntime go build -tags strictfipsruntime -a -o manager main.go
 
-FROM registry.redhat.io/ubi8/ubi-minimal@sha256:b2a1bec3dfbc7a14a1d84d98934dfe8fdde6eb822a211286601cf109cbccb075 AS runtime
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:ac61c96b93894b9169221e87718733354dd3765dd4a62b275893c7ff0d876869 AS runtime
 
 ## Build args to be used at this step
 ARG USER=65532
