@@ -35,7 +35,7 @@ STATIC_REPOS = {
     "IMAGES_MARIADB": "registry.redhat.io/rhel8/mariadb-103@sha256:f0ee0d27bb784e289f7d88cc8ee0e085ca70e88a5d126562105542f259a1ac01",
     "IMAGES_OAUTHPROXY": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8ce44de8c683f198bf24ba36cd17e89708153d11f5b42c0a27e77f8fdb233551",
     "IMAGES_TOOLBOX": "registry.redhat.io/ubi9/toolbox@sha256:da31dee8904a535d12689346e65e5b00d11a6179abf1fa69b548dbd755fa2770",
-    "IMAGES_RHELAI": "registry.redhat.io/rhelai1/instructlab-nvidia-rhel9@sha256:05cfba1fb13ed54b1de4d021da2a31dd78ba7d8cc48e10c7fe372815899a18ae",
+    "IMAGES_RHELAI": "registry.redhat.io/rhelai1/instructlab-nvidia-rhel9@sha256:3e6eb035c69b204746a44b3a58b2751c20050cfb6af2ba7989ba327809f87c0b",
 }
 
 OTHER_OPTIONS = {
