@@ -135,6 +135,26 @@ func (r *DSPAReconciler) DeleteResource(params *DSPAParams, template string, fns
 	return tmplManifest.Delete()
 }
 
+func (r *DSPAReconciler) DeleteResourceDir(params *DSPAParams, directory string) error {
+	templates, err := util.GetTemplatesInDir(r.TemplatesPath, directory)
+	if err != nil {
+		return err
+	}
+	return r.DeleteResourceAll(params, templates)
+}
+
+func (r *DSPAReconciler) DeleteResourceAll(params *DSPAParams, templates []string) error {
+	for _, template := range templates {
+		err := r.DeleteResource(params, template)
+		if err != nil {
+			if !apierrs.IsNotFound(err) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (r *DSPAReconciler) DeleteResourceIfItExists(ctx context.Context, obj client.Object, nn types.NamespacedName) error {
 	err := r.Get(ctx, nn, obj)
 	if err == nil {
@@ -356,9 +376,17 @@ func (r *DSPAReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			return ctrl.Result{}, err
 		}
 
-		err = r.ReconcileWorkflowController(dspa, params)
+		workflowControllerEnabled, err := r.ReconcileWorkflowController(dspa, params)
 		if err != nil {
+			dspaStatus.SetWorkflowControllerNotReady(err, config.FailingToDeploy)
 			return ctrl.Result{}, err
+		} else {
+			if workflowControllerEnabled {
+				r.setStatus(ctx, params.WorkflowControllerDefaultResourceName, config.WorkflowControllerReady, dspa,
+					dspaStatus.SetWorkflowControllerStatus, log)
+			} else {
+				dspaStatus.SetWorkflowControllerNotApplicable()
+			}
 		}
 
 		// MLMD should be the last to reconcile because it can cause an early exit due to the lack of the TLS secret, which may not have been created yet.
@@ -378,13 +406,14 @@ func (r *DSPAReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 	metricsMap := map[metav1.Condition]*prometheus.GaugeVec{
-		util.GetConditionByType(config.DatabaseAvailable, conditions):      DBAvailableMetric,
-		util.GetConditionByType(config.ObjectStoreAvailable, conditions):   ObjectStoreAvailableMetric,
-		util.GetConditionByType(config.APIServerReady, conditions):         APIServerReadyMetric,
-		util.GetConditionByType(config.PersistenceAgentReady, conditions):  PersistenceAgentReadyMetric,
-		util.GetConditionByType(config.ScheduledWorkflowReady, conditions): ScheduledWorkflowReadyMetric,
-		util.GetConditionByType(config.MLMDProxyReady, conditions):         MLMDProxyReadyMetric,
-		util.GetConditionByType(config.CrReady, conditions):                CrReadyMetric,
+		util.GetConditionByType(config.DatabaseAvailable, conditions):       DBAvailableMetric,
+		util.GetConditionByType(config.ObjectStoreAvailable, conditions):    ObjectStoreAvailableMetric,
+		util.GetConditionByType(config.APIServerReady, conditions):          APIServerReadyMetric,
+		util.GetConditionByType(config.PersistenceAgentReady, conditions):   PersistenceAgentReadyMetric,
+		util.GetConditionByType(config.ScheduledWorkflowReady, conditions):  ScheduledWorkflowReadyMetric,
+		util.GetConditionByType(config.WorkflowControllerReady, conditions): WorkflowControllerReadyMetric,
+		util.GetConditionByType(config.MLMDProxyReady, conditions):          MLMDProxyReadyMetric,
+		util.GetConditionByType(config.CrReady, conditions):                 CrReadyMetric,
 	}
 	r.PublishMetrics(dspa, metricsMap)
 

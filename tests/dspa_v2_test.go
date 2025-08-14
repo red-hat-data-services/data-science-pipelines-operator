@@ -32,10 +32,10 @@ import (
 func (suite *IntegrationTestSuite) TestDSPADeployment() {
 	podCount := 8
 	if suite.DSPA.Spec.ObjectStorage.ExternalStorage != nil {
-		podCount = podCount - 1
+		podCount--
 	}
 	if suite.DSPA.Spec.Database.ExternalDB != nil {
-		podCount = podCount - 1
+		podCount--
 	}
 	deployments := []string{
 		fmt.Sprintf("ds-pipeline-%s", suite.DSPA.Name),
@@ -43,12 +43,26 @@ func (suite *IntegrationTestSuite) TestDSPADeployment() {
 		fmt.Sprintf("ds-pipeline-scheduledworkflow-%s", suite.DSPA.Name),
 	}
 
+	skippedDeployments := []string{}
+
 	if suite.DSPA.Spec.ObjectStorage.ExternalStorage == nil && suite.DSPA.Spec.Database.ExternalDB == nil {
 		deployments = append(deployments,
 			fmt.Sprintf("mariadb-%s", suite.DSPA.Name),
 			fmt.Sprintf("minio-%s", suite.DSPA.Name),
 		)
 	}
+
+	if suite.ArgoWorkflowsControllersManagementState == "Managed" || suite.ArgoWorkflowsControllersManagementState == "" {
+		deployments = append(deployments,
+			fmt.Sprintf("ds-pipeline-workflow-controller-%s", suite.DSPA.Name),
+		)
+	} else {
+		podCount--
+		skippedDeployments = append(skippedDeployments,
+			fmt.Sprintf("ds-pipeline-workflow-controller-%s", suite.DSPA.Name),
+		)
+	}
+
 	suite.T().Run("with default MariaDB and Minio", func(t *testing.T) {
 		t.Run(fmt.Sprintf("should have %d pods", podCount), func(t *testing.T) {
 			timeout := time.Second * 120
@@ -84,9 +98,17 @@ func (suite *IntegrationTestSuite) TestDSPADeployment() {
 				}
 			}, timeout, interval)
 		})
+
+		testUtil.WaitForDSPAReady(t, suite.Ctx, suite.Clientmgr.k8sClient, suite.DSPA.Name, suite.DSPANamespace, DeployTimeout, PollInterval)
+
 		for _, deployment := range deployments {
 			t.Run(fmt.Sprintf("should have a ready %s deployment", deployment), func(t *testing.T) {
 				testUtil.TestForSuccessfulDeployment(t, suite.Ctx, suite.DSPANamespace, deployment, suite.Clientmgr.k8sClient)
+			})
+		}
+		for _, deployment := range skippedDeployments {
+			t.Run(fmt.Sprintf("should not have a ready %s deployment", deployment), func(t *testing.T) {
+				testUtil.TestForDeploymentAbsence(t, suite.Ctx, suite.DSPANamespace, deployment, suite.Clientmgr.k8sClient)
 			})
 		}
 	})
