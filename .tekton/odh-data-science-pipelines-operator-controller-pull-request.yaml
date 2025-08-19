@@ -12,7 +12,7 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "true"
   labels:
     appstudio.openshift.io/application: automation
-    appstudio.openshift.io/component: pull-request-pipelines-odh-dsp-operator-controller
+    appstudio.openshift.io/component: pull-request-pipelines-odh-data-science-pipelines-operator-controller
     pipelines.appstudio.openshift.io/type: build
   name: odh-data-science-pipelines-operator-controller-on-pull-request
   namespace: rhoai-tenant
@@ -47,7 +47,7 @@ spec:
   - name: build-platforms
     value:
     - linux/x86_64
-    - linux/arm64
+    - linux-m2xlarge/arm64
   - name: image-expires-after
     value: 5d
   pipelineRef:
