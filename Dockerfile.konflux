@@ -30,7 +30,8 @@ FROM registry.redhat.io/ubi8/ubi-minimal@sha256:b2a1bec3dfbc7a14a1d84d98934dfe8f
 ARG USER=65532
 
 LABEL com.redhat.component="odh-data-science-pipelines-operator-controller-container" \
-      name="managed-open-data-hub/odh-data-science-pipelines-operator-controller-rhel8" \
+      name="rhoai/odh-data-science-pipelines-operator-controller-rhel8" \
+      cpe="cpe:/a:redhat:openshift_ai:2.20::el8" \
       description="Manages lifecycle of Data Science Pipelines Custom Resources and associated Kubernetes resources" \
       summary="odh-data-science-pipelines-operator-controller" \
       maintainer="['managed-open-data-hub@redhat.com']" \
