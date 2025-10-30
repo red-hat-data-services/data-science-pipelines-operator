@@ -2,14 +2,14 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: 
+    build.appstudio.openshift.io/repo:
       https://github.com/red-hat-data-services/data-science-pipelines-operator?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: '3'
     build.appstudio.openshift.io/build-nudge-files: build/operator-nudging.yaml
     pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "push" 
+      event == "push"
       && target_branch == "rhoai-2.19"
       && ( !".tekton/**".pathChanged() || ".tekton/odh-data-science-pipelines-operator-controller-v2-19-push.yaml".pathChanged() )
   creationTimestamp:
@@ -33,7 +33,7 @@ spec:
     - version=v2.19.2
     - io.openshift.tags=odh-data-science-pipelines-operator-controller
   - name: output-image
-    value: 
+    value:
       quay.io/rhoai/odh-data-science-pipelines-operator-controller-rhel8:{{target_branch}}
   - name: dockerfile
     value: Dockerfile.konflux
