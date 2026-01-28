@@ -11,12 +11,12 @@ arches:
     name: libsemanage
     evr: 2.9-12.el8_10
     sourcerpm: libsemanage-2.9-12.el8_10.src.rpm
-  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi8/8/x86_64/baseos/os/Packages/s/shadow-utils-4.6-22.el8.x86_64.rpm
+  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi8/8/x86_64/baseos/os/Packages/s/shadow-utils-4.6-23.el8_10.x86_64.rpm
     repoid: ubi-8-for-x86_64-baseos-rpms
-    size: 1292332
-    checksum: sha256:ea73ee201451bbca0d6d14ca434c93800f01c8fb1b9daef727a5af1a27356d07
+    size: 1292212
+    checksum: sha256:14c51c9595e5af1b0949b230b03fd83becd05560f6e380a737436246d267b9a5
     name: shadow-utils
-    evr: 2:4.6-22.el8
-    sourcerpm: shadow-utils-4.6-22.el8.src.rpm
+    evr: 2:4.6-23.el8_10
+    sourcerpm: shadow-utils-4.6-23.el8_10.src.rpm
   source: []
   module_metadata: []
