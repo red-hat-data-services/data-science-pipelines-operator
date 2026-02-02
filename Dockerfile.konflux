@@ -24,7 +24,7 @@ USER root
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager main.go
 
-FROM registry.redhat.io/ubi8/ubi-minimal@sha256:fba1e7fb1f50cd7b021c8379f207fb744b00ff55c7f539f15b40709a38cb4cde AS runtime
+FROM registry.redhat.io/ubi8/ubi-minimal@sha256:5dc6ba426ccbeb3954ead6b015f36b4a2d22320e5b356b074198d08422464ed2 AS runtime
 
 ## Build args to be used at this step
 ARG USER=65532
