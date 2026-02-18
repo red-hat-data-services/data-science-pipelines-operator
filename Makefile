@@ -247,6 +247,10 @@ bundle-build: ## Build the bundle image.
 bundle-push: ## Push the bundle image.
 	$(MAKE) podman-push IMG=$(BUNDLE_IMG)
 
+
+
+
+
 .PHONY: opm
 OPM = ./bin/opm
 opm: ## Download opm locally if necessary.
