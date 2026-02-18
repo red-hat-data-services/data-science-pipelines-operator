@@ -11,8 +11,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-            go-version-file: go.mod
-            cache: true
+          go-version-file: go.mod
+          cache: true
       - name: Install golangci-lint
         run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
       - name: Set up Python
