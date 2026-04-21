@@ -1,7 +1,7 @@
 # Build arguments
 ARG SOURCE_CODE=.
 
-FROM registry.access.redhat.com/ubi8/go-toolset:1.25@sha256:8abaf44e9e71bf72848fb4fc7bc032a08582aa3ae04af76a338748edcae49c50 as builder
+FROM registry.access.redhat.com/ubi8/go-toolset:1.25@sha256:dcec41e6adc227c1a51d4950b4306001c6f6a6417fcea52e12f02a1996213c26 as builder
 
 ARG SOURCE_CODE
 
@@ -24,7 +24,7 @@ USER root
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager main.go
 
-FROM registry.redhat.io/ubi8/ubi-minimal@sha256:a2b9823a9883ca2d6de30079da84afce32cd1f3777905aca1a46d4383ff096f9 AS runtime
+FROM registry.redhat.io/ubi8/ubi-minimal@sha256:18dde055f01f35b31122731440263922bc32e62cdd15f1d00764f3fa763464c3 AS runtime
 
 ## Build args to be used at this step
 ARG USER=65532
