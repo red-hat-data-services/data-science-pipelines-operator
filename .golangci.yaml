@@ -1,24 +1,48 @@
+version: "2"
 run:
   timeout: 5m
 linters:
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
-    - typecheck
     - unused
     - revive
-issues:
-  exclude-rules:
-    - linters:
-        - staticcheck
-      path: controllers/dspipeline_params.go
-      text: SA1019  # exclude failures for deprecated warnings
-linters-settings:
-  revive:
+  settings:
+    revive:
+      rules:
+        - name: dot-imports
+          severity: warning
+          disabled: true
+    staticcheck:
+      # golangci-lint v2 merges analyzers into staticcheck; match legacy golangci v1 + gosimple (SA*, S1*) without QF quickfixes or ST style checks.
+      checks:
+        - SA*
+        - S1*
+        - '-QF*'
+        - '-ST*'
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: dot-imports
-        severity: warning
-        disabled: true
+      - linters:
+          - staticcheck
+        path: controllers/dspipeline_params.go
+        text: SA1019
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+
