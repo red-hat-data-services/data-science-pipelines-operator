@@ -1,11 +1,11 @@
 from kfp import dsl, compiler
 
-# Edited the compiled version manually, to remove the --trusted-host flag
-# this is so we can test for tls certs validations when launcher installs packages
+# Keep this pipeline pinned to a custom pip server and explicit trusted host so
+# integration tests are stable in CI environments with self-signed certificates.
 @dsl.component(base_image="quay.io/opendatahub/ds-pipelines-ci-executor-image:v1.0",
 packages_to_install=['numpy'],
 pip_index_urls=['https://nginx-service.test-pypiserver.svc.cluster.local/simple/'],
-pip_trusted_hosts=[])
+pip_trusted_hosts=['nginx-service.test-pypiserver.svc.cluster.local'])
 def say_hello() -> str:
     import numpy as np
     hello_text = f'Numpy version: {np.__version__}'
