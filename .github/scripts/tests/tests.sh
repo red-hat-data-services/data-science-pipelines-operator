@@ -102,6 +102,32 @@ deploy_argo_external() {
   kubectl apply -n $ARGO_NAMESPACE -f https://github.com/argoproj/argo-workflows/releases/download/$ARGO_VERSION/install.yaml
 }
 
+patch_external_argo_security_context() {
+  echo "---------------------------------"
+  echo "Patch External Argo workflow-controller security context"
+  echo "---------------------------------"
+  kubectl -n $ARGO_NAMESPACE patch deployment workflow-controller --type='merge' --patch '
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: workflow-controller
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+'
+}
+
 deploy_dspo() {
   IMG=$(get_dspo_image)
   echo "---------------------------------"
@@ -375,6 +401,7 @@ setup_external_argo() {
   update_dspo_env "DSPO_ARGOWORKFLOWSCONTROLLERS" "{\"managementState\": \"$AWF_MANAGEMENT_STATE\"}"
   create_argo_namespace
   deploy_argo_external
+  patch_external_argo_security_context
   wait_for_dspo_redeploy
 }
 
