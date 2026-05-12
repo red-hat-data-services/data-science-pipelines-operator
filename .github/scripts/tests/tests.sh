@@ -106,26 +106,9 @@ patch_external_argo_security_context() {
   echo "---------------------------------"
   echo "Patch External Argo workflow-controller security context"
   echo "---------------------------------"
-  kubectl -n $ARGO_NAMESPACE patch deployment workflow-controller --type='merge' --patch '
-spec:
-  template:
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-      - name: workflow-controller
-        securityContext:
-          readOnlyRootFilesystem: true
-          runAsNonRoot: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-          seccompProfile:
-            type: RuntimeDefault
-'
+  kubectl -n $ARGO_NAMESPACE patch deployment workflow-controller \
+    --type='strategic' \
+    --patch-file "${GIT_WORKSPACE}/.github/resources/argo-external/workflow-controller-deployment-patch.yaml"
 }
 
 deploy_dspo() {
