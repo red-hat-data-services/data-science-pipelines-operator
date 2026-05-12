@@ -111,6 +111,15 @@ patch_external_argo_security_context() {
     --patch-file "${GIT_WORKSPACE}/.github/resources/argo-external/workflow-controller-deployment-patch.yaml"
 }
 
+patch_external_argo_executor_security_context() {
+  echo "---------------------------------"
+  echo "Patch External Argo workflow-controller executor security context"
+  echo "---------------------------------"
+  kubectl -n $ARGO_NAMESPACE patch configmap workflow-controller-configmap \
+    --type='merge' \
+    --patch-file "${GIT_WORKSPACE}/.github/resources/argo-external/workflow-controller-configmap-patch.yaml"
+}
+
 deploy_dspo() {
   IMG=$(get_dspo_image)
   echo "---------------------------------"
@@ -385,6 +394,7 @@ setup_external_argo() {
   create_argo_namespace
   deploy_argo_external
   patch_external_argo_security_context
+  patch_external_argo_executor_security_context
   wait_for_dspo_redeploy
 }
 
