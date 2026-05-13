@@ -1,5 +1,7 @@
 module github.com/opendatahub-io/data-science-pipelines-operator
 
+// No-op (branch ci/noop-touch-pr940-files): comment-only change to match PR #940 paths; no Go/toolchain bump.
+
 go 1.21
 
 require (
