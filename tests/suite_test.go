@@ -223,7 +223,21 @@ func (suite *IntegrationTestSuite) SetupSuite() {
 		_, err = forwarderResult.Ready()
 		suite.Require().NoError(err)
 
-		APIServerURL = fmt.Sprintf("http://127.0.0.1:%d", PortforwardLocalPort)
+		// Match the local port-forward scheme to API server TLS mode to avoid
+		// HTTP->HTTPS protocol mismatches in service endpoint mode.
+		podToPodTLSEnabled := true
+		if DSPA.Spec.PodToPodTLS != nil {
+			podToPodTLSEnabled = *DSPA.Spec.PodToPodTLS
+		}
+
+		if podToPodTLSEnabled {
+			APIServerURL = fmt.Sprintf("https://127.0.0.1:%d", PortforwardLocalPort)
+			suite.Clientmgr.httpClient.Transport = &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			}
+		} else {
+			APIServerURL = fmt.Sprintf("http://127.0.0.1:%d", PortforwardLocalPort)
+		}
 
 		loggr.Info(fmt.Sprintf("Port forwarding service Successfully set up: %s", APIServerURL))
 

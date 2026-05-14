@@ -258,6 +258,111 @@ apply_mariadb_minio_secrets_configmaps_external_namespace() {
   ( cd "${GIT_WORKSPACE}/.github/resources/external-pre-reqs" && kubectl -n $DSPA_EXTERNAL_NAMESPACE apply -k . )
 }
 
+apply_service_ca_configmap_external_namespace() {
+  echo "---------------------------------"
+  echo "Apply service-ca ConfigMap in External Namespace"
+  echo "---------------------------------"
+  tmp_ca_file=$(mktemp)
+  kubectl -n $DSPA_EXTERNAL_NAMESPACE get configmap root-ca -o jsonpath='{.data.public\.crt}' > "$tmp_ca_file"
+  kubectl -n $DSPA_EXTERNAL_NAMESPACE create configmap openshift-service-ca.crt \
+    --from-file=service-ca.crt="$tmp_ca_file" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  rm -f "$tmp_ca_file"
+}
+
+apply_mlmd_tls_secret_external_namespace() {
+  echo "---------------------------------"
+  echo "Apply MLMD TLS Secret in External Namespace"
+  echo "---------------------------------"
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "Error: openssl is required to generate MLMD TLS certificates"
+    exit 1
+  fi
+
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  local tls_key="${tmp_dir}/tls.key"
+  local tls_crt="${tmp_dir}/tls.crt"
+  local secret_name="ds-pipeline-metadata-grpc-tls-certs-dspa-ext"
+  local dns0="metadata-grpc-service"
+  local dns1="metadata-grpc-service.${DSPA_EXTERNAL_NAMESPACE}"
+  local dns2="metadata-grpc-service.${DSPA_EXTERNAL_NAMESPACE}.svc"
+  local dns3="metadata-grpc-service.${DSPA_EXTERNAL_NAMESPACE}.svc.cluster.local"
+  local san="subjectAltName=DNS:${dns0},DNS:${dns1},DNS:${dns2},DNS:${dns3}"
+
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout "$tls_key" \
+    -out "$tls_crt" \
+    -days 365 \
+    -subj "/CN=${dns3}" \
+    -addext "$san"
+
+  kubectl -n $DSPA_EXTERNAL_NAMESPACE create secret tls "$secret_name" \
+    --cert="$tls_crt" \
+    --key="$tls_key" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  rm -rf "$tmp_dir"
+}
+
+apply_apiserver_proxy_tls_secret_external_namespace() {
+  echo "---------------------------------"
+  echo "Apply API Server Proxy TLS Secret in External Namespace"
+  echo "---------------------------------"
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "Error: openssl is required to generate API Server TLS certificates"
+    exit 1
+  fi
+
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  local tls_key="${tmp_dir}/tls.key"
+  local tls_crt="${tmp_dir}/tls.crt"
+  local secret_name="ds-pipelines-proxy-tls-dspa-ext"
+  local dns0="ds-pipeline-dspa-ext"
+  local dns1="ds-pipeline-dspa-ext.${DSPA_EXTERNAL_NAMESPACE}"
+  local dns2="ds-pipeline-dspa-ext.${DSPA_EXTERNAL_NAMESPACE}.svc"
+  local dns3="ds-pipeline-dspa-ext.${DSPA_EXTERNAL_NAMESPACE}.svc.cluster.local"
+  local dns4="ml-pipeline"
+  local dns5="ml-pipeline.${DSPA_EXTERNAL_NAMESPACE}"
+  local dns6="ml-pipeline.${DSPA_EXTERNAL_NAMESPACE}.svc"
+  local dns7="ml-pipeline.${DSPA_EXTERNAL_NAMESPACE}.svc.cluster.local"
+  local san="subjectAltName=DNS:${dns0},DNS:${dns1},DNS:${dns2},DNS:${dns3},DNS:${dns4},DNS:${dns5},DNS:${dns6},DNS:${dns7}"
+
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout "$tls_key" \
+    -out "$tls_crt" \
+    -days 365 \
+    -subj "/CN=${dns3}" \
+    -addext "$san"
+
+  kubectl -n "$DSPA_EXTERNAL_NAMESPACE" create secret tls "$secret_name" \
+    --cert="$tls_crt" \
+    --key="$tls_key" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  local root_ca_bundle="${tmp_dir}/root-ca-public.crt"
+  local service_ca_bundle="${tmp_dir}/service-ca.crt"
+  local generated_tls_cert
+  generated_tls_cert="$(cat "$tls_crt")"
+  local existing_root_ca
+  existing_root_ca="$(kubectl -n "$DSPA_EXTERNAL_NAMESPACE" get configmap root-ca -o jsonpath='{.data.public\.crt}')"
+  local existing_service_ca
+  existing_service_ca="$(kubectl -n "$DSPA_EXTERNAL_NAMESPACE" get configmap openshift-service-ca.crt -o jsonpath='{.data.service-ca\.crt}')"
+
+  printf '%s\n%s\n' "$existing_root_ca" "$generated_tls_cert" > "$root_ca_bundle"
+  printf '%s\n%s\n' "$existing_service_ca" "$generated_tls_cert" > "$service_ca_bundle"
+
+  kubectl -n "$DSPA_EXTERNAL_NAMESPACE" create configmap root-ca \
+    --from-file=public.crt="$root_ca_bundle" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n "$DSPA_EXTERNAL_NAMESPACE" create configmap openshift-service-ca.crt \
+    --from-file=service-ca.crt="$service_ca_bundle" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  rm -rf "$tmp_dir"
+}
+
 apply_pip_server_configmap() {
   echo "---------------------------------"
   echo "Apply PIP Server ConfigMap"
@@ -355,6 +460,9 @@ setup_kind_requirements() {
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
   apply_mariadb_minio_secrets_configmaps_external_namespace
+  apply_service_ca_configmap_external_namespace
+  apply_mlmd_tls_secret_external_namespace
+  apply_apiserver_proxy_tls_secret_external_namespace
   apply_pip_server_configmap
 }
 
@@ -373,6 +481,9 @@ setup_openshift_ci_requirements() {
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
   apply_mariadb_minio_secrets_configmaps_external_namespace
+  apply_service_ca_configmap_external_namespace
+  apply_mlmd_tls_secret_external_namespace
+  apply_apiserver_proxy_tls_secret_external_namespace
   apply_pip_server_configmap
 }
 
@@ -386,6 +497,9 @@ setup_rhoai_requirements() {
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
   apply_mariadb_minio_secrets_configmaps_external_namespace
+  apply_service_ca_configmap_external_namespace
+  apply_mlmd_tls_secret_external_namespace
+  apply_apiserver_proxy_tls_secret_external_namespace
   apply_pip_server_configmap
 }
 
