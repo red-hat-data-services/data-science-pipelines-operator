@@ -221,6 +221,45 @@ wait_for_dependencies() {
   kubectl wait -n $PYPISERVER_NAMESPACE --timeout=60s --for=condition=Available=true deployment pypi-server
 }
 
+wait_for_mlmd_grpc_external_namespace() {
+  echo "---------------------------------"
+  echo "Wait for MLMD GRPC in External Namespace"
+  echo "---------------------------------"
+  local deployment_name="ds-pipeline-metadata-grpc-dspa-ext"
+  local timeout="${DSPA_DEPLOY_WAIT_TIMEOUT}s"
+  local sleep_amount=5
+  local counter=0
+  local max_counter=24
+  while [ "$counter" -lt "$max_counter" ]; do
+    if kubectl get deployment -n "$DSPA_EXTERNAL_NAMESPACE" "$deployment_name" >/dev/null 2>&1; then
+      break
+    fi
+    echo "Waiting for $deployment_name to be created, attempt $counter out of $max_counter..."
+    counter=$((counter+1))
+    sleep "$sleep_amount"
+  done
+  if [ "$counter" -eq "$max_counter" ]; then
+    echo "Error: $deployment_name was not created after $(($counter * $sleep_amount)) seconds."
+    exit 1
+  fi
+
+  kubectl wait -n "$DSPA_EXTERNAL_NAMESPACE" --timeout="$timeout" --for=condition=Available=true deployment "$deployment_name"
+
+  counter=0
+  while [ "$counter" -lt "$max_counter" ]; do
+    endpoints=$(kubectl get endpoints -n "$DSPA_EXTERNAL_NAMESPACE" metadata-grpc-service -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)
+    if [ -n "$endpoints" ]; then
+      echo "MLMD GRPC endpoints are ready."
+      return 0
+    fi
+    echo "Waiting for metadata-grpc-service endpoints, attempt $counter out of $max_counter..."
+    counter=$((counter+1))
+    sleep "$sleep_amount"
+  done
+  echo "Error: metadata-grpc-service endpoints are not ready after $(($counter * $sleep_amount)) seconds."
+  exit 1
+}
+
 upload_python_packages_to_pypi_server() {
   echo "---------------------------------"
   echo "Upload Python Packages to pypi-server"
@@ -398,7 +437,14 @@ run_tests_dspa_external_connections() {
   echo "---------------------------------"
   echo "Run tests for DSPA with External Connections"
   echo "---------------------------------"
-  ( cd $GIT_WORKSPACE && make integrationtest K8SAPISERVERHOST=${K8SAPISERVERHOST} DSPANAMESPACE=${DSPA_EXTERNAL_NAMESPACE} DSPAPATH=${DSPA_EXTERNAL_PATH} ENDPOINT_TYPE=${ENDPOINT_TYPE} MINIONAMESPACE=${MINIO_NAMESPACE} INTTEST_AWF_MANAGEMENT_STATE=${AWF_MANAGEMENT_STATE} INTTEST_SKIP_DEPLOY=${SKIP_DEPLOY} INTTEST_SKIP_CLEANUP=${SKIP_CLEANUP})
+  local external_skip_deploy="${SKIP_DEPLOY}"
+  if [ "$SKIP_DEPLOY" = false ]; then
+    echo "Pre-deploy DSPA external to gate on MLMD readiness"
+    kubectl -n "$DSPA_EXTERNAL_NAMESPACE" apply -f "$DSPA_EXTERNAL_PATH"
+    wait_for_mlmd_grpc_external_namespace
+    external_skip_deploy=true
+  fi
+  ( cd $GIT_WORKSPACE && make integrationtest K8SAPISERVERHOST=${K8SAPISERVERHOST} DSPANAMESPACE=${DSPA_EXTERNAL_NAMESPACE} DSPAPATH=${DSPA_EXTERNAL_PATH} ENDPOINT_TYPE=${ENDPOINT_TYPE} MINIONAMESPACE=${MINIO_NAMESPACE} INTTEST_AWF_MANAGEMENT_STATE=${AWF_MANAGEMENT_STATE} INTTEST_SKIP_DEPLOY=${external_skip_deploy} INTTEST_SKIP_CLEANUP=${SKIP_CLEANUP})
 }
 
 run_tests_dspa_k8s() {
