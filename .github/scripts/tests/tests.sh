@@ -260,6 +260,49 @@ wait_for_mlmd_grpc_external_namespace() {
   exit 1
 }
 
+dump_mlmd_grpc_external_namespace_diagnostics() {
+  echo "---------------------------------"
+  echo "Dump MLMD GRPC Diagnostics (External Namespace)"
+  echo "---------------------------------"
+  local namespace="$DSPA_EXTERNAL_NAMESPACE"
+  local deployment_name="ds-pipeline-metadata-grpc-dspa-ext"
+  local service_name="metadata-grpc-service"
+  local selector
+  local pod_names
+
+  set +e
+  kubectl get deployment -n "$namespace" "$deployment_name" -o wide
+  kubectl describe deployment -n "$namespace" "$deployment_name"
+  kubectl get service -n "$namespace" "$service_name" -o wide
+  kubectl get endpoints -n "$namespace" "$service_name" -o yaml
+  kubectl get pods -n "$namespace" -o wide
+  kubectl get events -n "$namespace" --sort-by=.lastTimestamp | tail -n 100
+
+  selector=$(kubectl get deployment -n "$namespace" "$deployment_name" -o jsonpath='{range $k,$v := .spec.selector.matchLabels}{$k}={$v},{end}' 2>/dev/null || true)
+  selector="${selector%,}"
+  if [ -n "$selector" ]; then
+    pod_names=$(kubectl get pods -n "$namespace" -l "$selector" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+  fi
+
+  if [ -z "$pod_names" ]; then
+    pod_names=$(kubectl get pods -n "$namespace" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+  fi
+
+  for pod_name in $pod_names; do
+    echo "----- Pod Diagnostics: ${pod_name} -----"
+    kubectl get pod -n "$namespace" "$pod_name" -o wide
+    kubectl describe pod -n "$namespace" "$pod_name"
+    containers=$(kubectl get pod -n "$namespace" "$pod_name" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null || true)
+    for container_name in $containers; do
+      echo "----- Current logs: pod=${pod_name} container=${container_name} -----"
+      kubectl logs -n "$namespace" "$pod_name" -c "$container_name" --timestamps --tail=300
+      echo "----- Previous logs: pod=${pod_name} container=${container_name} -----"
+      kubectl logs -n "$namespace" "$pod_name" -c "$container_name" --previous --timestamps --tail=300
+    done
+  done
+  set -e
+}
+
 upload_python_packages_to_pypi_server() {
   echo "---------------------------------"
   echo "Upload Python Packages to pypi-server"
@@ -444,7 +487,11 @@ run_tests_dspa_external_connections() {
     wait_for_mlmd_grpc_external_namespace
     external_skip_deploy=true
   fi
-  ( cd $GIT_WORKSPACE && make integrationtest K8SAPISERVERHOST=${K8SAPISERVERHOST} DSPANAMESPACE=${DSPA_EXTERNAL_NAMESPACE} DSPAPATH=${DSPA_EXTERNAL_PATH} ENDPOINT_TYPE=${ENDPOINT_TYPE} MINIONAMESPACE=${MINIO_NAMESPACE} INTTEST_AWF_MANAGEMENT_STATE=${AWF_MANAGEMENT_STATE} INTTEST_SKIP_DEPLOY=${external_skip_deploy} INTTEST_SKIP_CLEANUP=${SKIP_CLEANUP})
+  if ! ( cd $GIT_WORKSPACE && make integrationtest K8SAPISERVERHOST=${K8SAPISERVERHOST} DSPANAMESPACE=${DSPA_EXTERNAL_NAMESPACE} DSPAPATH=${DSPA_EXTERNAL_PATH} ENDPOINT_TYPE=${ENDPOINT_TYPE} MINIONAMESPACE=${MINIO_NAMESPACE} INTTEST_AWF_MANAGEMENT_STATE=${AWF_MANAGEMENT_STATE} INTTEST_SKIP_DEPLOY=${external_skip_deploy} INTTEST_SKIP_CLEANUP=${SKIP_CLEANUP}); then
+    echo "DSPA external integration tests failed. Collecting MLMD diagnostics..."
+    dump_mlmd_grpc_external_namespace_diagnostics
+    exit 1
+  fi
 }
 
 run_tests_dspa_k8s() {
