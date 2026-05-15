@@ -100,6 +100,40 @@ deploy_argo_external() {
   echo "Deploy External Argo"
   echo "---------------------------------"
   kubectl apply -n $ARGO_NAMESPACE -f https://github.com/argoproj/argo-workflows/releases/download/$ARGO_VERSION/install.yaml
+  patch_external_argo_workflow_controller
+}
+
+patch_external_argo_workflow_controller() {
+  echo "---------------------------------"
+  echo "Patch External Argo Workflow Controller"
+  echo "---------------------------------"
+  kubectl -n $ARGO_NAMESPACE patch deployment workflow-controller --type='strategic' --patch "
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: workflow-controller
+        image: quay.io/argoproj/workflow-controller:$ARGO_VERSION
+        args:
+        - --configmap
+        - workflow-controller-configmap
+        - --executor-image
+        - quay.io/argoproj/argoexec:$ARGO_VERSION
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+"
+  kubectl -n $ARGO_NAMESPACE rollout status deployment workflow-controller --timeout=180s
 }
 
 deploy_dspo() {
