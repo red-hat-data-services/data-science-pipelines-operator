@@ -107,6 +107,9 @@ patch_external_argo_workflow_controller() {
   echo "---------------------------------"
   echo "Patch External Argo Workflow Controller"
   echo "---------------------------------"
+  # Use DSPO-aligned Argo images that are known to work with runAsNonRoot policy.
+  local dspo_argo_controller_image="quay.io/opendatahub/ds-pipelines-argo-workflowcontroller:3.6.12"
+  local dspo_argo_exec_image="quay.io/opendatahub/ds-pipelines-argo-argoexec:3.6.12"
   kubectl -n $ARGO_NAMESPACE patch deployment workflow-controller --type='strategic' --patch "
 spec:
   template:
@@ -117,12 +120,12 @@ spec:
           type: RuntimeDefault
       containers:
       - name: workflow-controller
-        image: quay.io/argoproj/workflow-controller:$ARGO_VERSION
+        image: $dspo_argo_controller_image
         args:
         - --configmap
         - workflow-controller-configmap
         - --executor-image
-        - quay.io/argoproj/argoexec:$ARGO_VERSION
+        - $dspo_argo_exec_image
         securityContext:
           readOnlyRootFilesystem: true
           runAsNonRoot: true
