@@ -107,7 +107,6 @@ patch_external_argo_workflow_controller() {
   echo "---------------------------------"
   echo "Patch External Argo Workflow Controller"
   echo "---------------------------------"
-  local dspo_argo_exec_image="quay.io/opendatahub/ds-pipelines-argo-argoexec:3.6.12"
   kubectl -n $ARGO_NAMESPACE patch deployment workflow-controller --type='strategic' --patch "
 spec:
   template:
@@ -118,11 +117,6 @@ spec:
           type: RuntimeDefault
       containers:
       - name: workflow-controller
-        args:
-        - --configmap
-        - workflow-controller-configmap
-        - --executor-image
-        - $dspo_argo_exec_image
         securityContext:
           readOnlyRootFilesystem: true
           runAsNonRoot: true
@@ -133,6 +127,17 @@ spec:
           seccompProfile:
             type: RuntimeDefault
 "
+  local workflow_defaults_patch
+  workflow_defaults_patch="$(cat <<'EOF'
+data:
+  workflowDefaults: |
+    spec:
+      podSpecPatch: |
+        {"initContainers":[{"name":"init","securityContext":{"runAsNonRoot":true,"runAsUser":1001}}],"containers":[{"name":"wait","securityContext":{"runAsNonRoot":true,"runAsUser":1001}}]}
+EOF
+)"
+  kubectl -n $ARGO_NAMESPACE patch configmap workflow-controller-configmap --type='merge' --patch "$workflow_defaults_patch"
+  kubectl -n $ARGO_NAMESPACE rollout restart deployment workflow-controller
   kubectl -n $ARGO_NAMESPACE rollout status deployment workflow-controller --timeout=180s
 }
 
