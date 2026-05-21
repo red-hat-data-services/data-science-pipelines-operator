@@ -53,7 +53,7 @@ restore_params_env_file() {
 set_params_env_key() {
   local key="$1"
   local value="$2"
-  if rg -q "^${key}=" "$PARAMS_ENV_PATH"; then
+  if grep -q "^${key}=" "$PARAMS_ENV_PATH"; then
     sed -i "s|^${key}=.*|${key}=${value}|" "$PARAMS_ENV_PATH"
   else
     echo "${key}=${value}" >> "$PARAMS_ENV_PATH"
@@ -95,7 +95,7 @@ apply_pipeline_image_overrides() {
   if [ "$has_overrides" = true ]; then
     trap restore_params_env_file EXIT
     echo "Effective DSP image params for this run:"
-    rg "^IMAGES_(APISERVER|PERSISTENCEAGENT|SCHEDULEDWORKFLOW|LAUNCHER|DRIVER|MLMDGRPC|MLMDENVOY|MARIADB|ARGO_EXEC|ARGO_WORKFLOWCONTROLLER)=" "$PARAMS_ENV_PATH"
+    grep -E "^IMAGES_(APISERVER|PERSISTENCEAGENT|SCHEDULEDWORKFLOW|LAUNCHER|DRIVER|MLMDGRPC|MLMDENVOY|MARIADB|ARGO_EXEC|ARGO_WORKFLOWCONTROLLER)=" "$PARAMS_ENV_PATH"
   fi
 
   IMAGE_OVERRIDES_APPLIED=true
