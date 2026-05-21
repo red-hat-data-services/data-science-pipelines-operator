@@ -40,6 +40,66 @@ ENDPOINT_TYPE="service"
 DSPO_IMAGE_REF="${DSPO_IMAGE_REF:-}"
 CONTAINER_CLI="${CONTAINER_CLI:-docker}"
 RUN_PKG_UPLOADER_IN_CONTAINER="${RUN_PKG_UPLOADER_IN_CONTAINER:-true}"
+PARAMS_ENV_PATH="${GIT_WORKSPACE}/config/base/params.env"
+PARAMS_ENV_BACKUP_PATH="${PARAMS_ENV_PATH}.bak.ci"
+IMAGE_OVERRIDES_APPLIED=false
+
+restore_params_env_file() {
+  if [ -f "$PARAMS_ENV_BACKUP_PATH" ]; then
+    mv "$PARAMS_ENV_BACKUP_PATH" "$PARAMS_ENV_PATH"
+  fi
+}
+
+set_params_env_key() {
+  local key="$1"
+  local value="$2"
+  if rg -q "^${key}=" "$PARAMS_ENV_PATH"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$PARAMS_ENV_PATH"
+  else
+    echo "${key}=${value}" >> "$PARAMS_ENV_PATH"
+  fi
+}
+
+apply_pipeline_image_overrides() {
+  if [ "$IMAGE_OVERRIDES_APPLIED" = true ]; then
+    return
+  fi
+
+  local has_overrides=false
+  local override_keys=(
+    "IMAGES_APISERVER"
+    "IMAGES_PERSISTENCEAGENT"
+    "IMAGES_SCHEDULEDWORKFLOW"
+    "IMAGES_LAUNCHER"
+    "IMAGES_DRIVER"
+    "IMAGES_MLMDGRPC"
+    "IMAGES_MLMDENVOY"
+    "IMAGES_MARIADB"
+    "IMAGES_ARGO_EXEC"
+    "IMAGES_ARGO_WORKFLOWCONTROLLER"
+  )
+
+  for key in "${override_keys[@]}"; do
+    local override_var="${key}_OVERRIDE"
+    local override_val="${!override_var}"
+    if [ -n "$override_val" ]; then
+      if [ "$has_overrides" = false ]; then
+        cp "$PARAMS_ENV_PATH" "$PARAMS_ENV_BACKUP_PATH"
+        has_overrides=true
+      fi
+      echo "Overriding $key with $override_val"
+      set_params_env_key "$key" "$override_val"
+    fi
+  done
+
+  if [ "$has_overrides" = true ]; then
+    trap restore_params_env_file EXIT
+    echo "Effective DSP image params for this run:"
+    rg "^IMAGES_(APISERVER|PERSISTENCEAGENT|SCHEDULEDWORKFLOW|LAUNCHER|DRIVER|MLMDGRPC|MLMDENVOY|MARIADB|ARGO_EXEC|ARGO_WORKFLOWCONTROLLER)=" "$PARAMS_ENV_PATH"
+  fi
+
+  IMAGE_OVERRIDES_APPLIED=true
+}
 
 get_dspo_image() {
   if [ ! -z "$DSPO_IMAGE_REF" ]; then
@@ -143,6 +203,7 @@ EOF
 
 deploy_dspo() {
   IMG=$(get_dspo_image)
+  apply_pipeline_image_overrides
   echo "---------------------------------"
   echo "Deploying DSPO: $IMG"
   echo "---------------------------------"
@@ -151,6 +212,7 @@ deploy_dspo() {
 
 deploy_dspo_kind() {
   IMG=$(get_dspo_image)
+  apply_pipeline_image_overrides
   echo "---------------------------------"
   echo "Push DSPO Image and Deploying DSPO on Kind: $IMG"
   echo "---------------------------------"
