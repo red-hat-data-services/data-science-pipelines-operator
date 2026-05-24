@@ -47,10 +47,6 @@ spec:
               value: testcabundleconfigmapkey5.crt
             - name: ARTIFACT_COPY_STEP_CABUNDLE_MOUNTPATH
               value: /dsp-custom-certs
-            - name: CABUNDLE_CONFIGMAP_NAME
-              value: dsp-trusted-ca-testdsp5
-            - name: CABUNDLE_KEY_NAME
-              value: testcabundleconfigmapkey5.crt
             - name: SSL_CERT_DIR
               value: "/dsp-custom-certs:/etc/ssl/certs:/etc/pki/tls/certs"
             - name: ML_PIPELINE_SERVICE_NAME

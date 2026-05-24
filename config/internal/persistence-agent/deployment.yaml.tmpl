@@ -37,7 +37,7 @@ spec:
             - name: EXECUTIONTYPE
               value: Workflow
             {{ if .PodToPodTLS }}
-            - name: CA_CERT_PATH
+            - name: SSL_CERT_DIR
               value: "/etc/pki/tls/certs:/var/run/secrets/kubernetes.io/serviceaccount/"
             {{ end }}
             {{ if .ProxyConfig }}
@@ -65,7 +65,6 @@ spec:
             - "--mlPipelineAPIServerName={{.APIServerServiceDNSName}}"
             {{ if .PodToPodTLS }}
             - "--mlPipelineServiceTLSEnabled=true"
-            - "--caCertPath=/etc/pki/tls/certs/ca.crt"
             {{ end }}
             - "--namespace={{.Namespace}}"
             - "--mlPipelineServiceHttpPort=8888"

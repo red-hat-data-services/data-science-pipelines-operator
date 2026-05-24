@@ -56,10 +56,6 @@ spec:
               value: "{{.CustomCABundle.ConfigMapKey}}"
             - name: ARTIFACT_COPY_STEP_CABUNDLE_MOUNTPATH
               value: {{ .CustomCABundleRootMountPath }}
-            - name: CABUNDLE_CONFIGMAP_NAME
-              value: "{{.CustomCABundle.ConfigMapName}}"
-            - name: CABUNDLE_KEY_NAME
-              value: "{{.CustomCABundle.ConfigMapKey}}"
             {{ end }}
             {{ if .CustomSSLCertDir }}
             - name: SSL_CERT_DIR
