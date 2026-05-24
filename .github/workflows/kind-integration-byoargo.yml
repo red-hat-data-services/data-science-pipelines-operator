@@ -51,6 +51,12 @@ jobs:
       - name: Run test
         id: test
         working-directory: ${{ github.workspace }}/.github/scripts/tests
+        env:
+          IMAGES_APISERVER_OVERRIDE: quay.io/opendatahub/ds-pipelines-api-server@sha256:8bcd11b18662c4f900f425d6cdf2e27aafa1a6842c57c73cf71d6f14331afc6d
+          IMAGES_LAUNCHER_OVERRIDE: quay.io/opendatahub/ds-pipelines-launcher@sha256:27a7502e54792985a170b88c065ceb0bf80c0088031a4f7c899574e9d15c6aa7
+          IMAGES_DRIVER_OVERRIDE: quay.io/opendatahub/ds-pipelines-driver@sha256:3feb8920dbd299085cdf85ac878adfbb628d56f43517f3c32f0a843b348326c2
+          IMAGES_PERSISTENCEAGENT_OVERRIDE: quay.io/opendatahub/ds-pipelines-persistenceagent@sha256:f9e5a989912190f31689fd42ed012e395c5409c45ef04a0ebb13a5f1b7b02f37
+          IMAGES_SCHEDULEDWORKFLOW_OVERRIDE: quay.io/opendatahub/ds-pipelines-scheduledworkflow@sha256:7ec6ea47c00df60d2602487a518da39a1acd068fe397982d49db4936ce9ec973
         run: |
           bash tests.sh --kind --deploy-external-argo --external-argo-version v3.7.3
         continue-on-error: true
