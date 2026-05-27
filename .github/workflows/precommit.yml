@@ -1,3 +1,4 @@
+# No-op (branch ci/noop-touch-pr940-files): YAML comment only — workflow logic unchanged (control PR vs PR #940).
 name: Pre-commit
 on:
   pull_request:

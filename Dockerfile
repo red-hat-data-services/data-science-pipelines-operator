@@ -1,4 +1,5 @@
 # Build the manager binary
+# No-op (branch ci/noop-touch-pr940-files): comment-only; same file as CVE PR — builder image unchanged.
 FROM registry.access.redhat.com/ubi9/go-toolset:1.24 AS builder
 ARG TARGETOS
 ARG TARGETARCH
