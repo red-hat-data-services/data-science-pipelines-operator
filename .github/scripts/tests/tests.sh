@@ -100,6 +100,45 @@ deploy_argo_external() {
   echo "Deploy External Argo"
   echo "---------------------------------"
   kubectl apply -n $ARGO_NAMESPACE -f https://github.com/argoproj/argo-workflows/releases/download/$ARGO_VERSION/install.yaml
+  patch_external_argo_workflow_controller
+}
+
+patch_external_argo_workflow_controller() {
+  echo "---------------------------------"
+  echo "Patch External Argo Workflow Controller"
+  echo "---------------------------------"
+  kubectl -n $ARGO_NAMESPACE patch deployment workflow-controller --type='strategic' --patch "
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: workflow-controller
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+"
+  local workflow_defaults_patch
+  workflow_defaults_patch="$(cat <<'EOF'
+data:
+  workflowDefaults: |
+    spec:
+      podSpecPatch: |
+        {"initContainers":[{"name":"init","securityContext":{"runAsNonRoot":true,"runAsUser":1001}}],"containers":[{"name":"wait","securityContext":{"runAsNonRoot":true,"runAsUser":1001}}]}
+EOF
+)"
+  kubectl -n $ARGO_NAMESPACE patch configmap workflow-controller-configmap --type='merge' --patch "$workflow_defaults_patch"
+  kubectl -n $ARGO_NAMESPACE rollout restart deployment workflow-controller
+  kubectl -n $ARGO_NAMESPACE rollout status deployment workflow-controller --timeout=180s
 }
 
 deploy_dspo() {
