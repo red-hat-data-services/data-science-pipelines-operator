@@ -1,4 +1,4 @@
-ARG CI_BASE=registry.access.redhat.com/ubi8/go-toolset:1.25
+ARG CI_BASE=registry.access.redhat.com/ubi9/go-toolset:1.25@sha256:df073e37d0cfe6c83df9fd4891b14252f3822cb511000c48f32c632f0d24920f
 
 FROM ${CI_BASE} as stage1
 
@@ -56,7 +56,7 @@ COPY --from=stage1 /build/bin /build/bin
 USER root
 
 RUN dnf -y install \
-    python39 \
+    python3 \
     python3-pip \
     golang \
     git \
