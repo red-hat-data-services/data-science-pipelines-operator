@@ -1,8 +1,8 @@
-name: Build images for Stable branch
+name: Build images for main branch
 on:
   push:
     branches:
-      - stable
+      - main
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
@@ -11,7 +11,7 @@ env:
   QUAY_ORG: opendatahub
   QUAY_ID: ${{ secrets.QUAY_ID }}
   QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
-  SOURCE_BRANCH: stable
+  SOURCE_BRANCH: main
 jobs:
   build-image:
     runs-on: ubuntu-latest
@@ -22,7 +22,7 @@ jobs:
         id: tags
         run: |
           commit_sha=${{ github.event.after }}
-          tag=odh-stable-${commit_sha:0:7}
+          tag=main-${commit_sha:0:7}
           echo "tag=${tag}" >> $GITHUB_OUTPUT
       - name: Build Image
         uses: ./.github/actions/build
@@ -34,11 +34,11 @@ jobs:
           IMAGE_REPO: ${{ env.IMAGE_REPO_DSPO }}
           DOCKERFILE: Dockerfile
           GH_REPO: ${{ github.repository }}
-      - name: Tag odh-stable
+      - name: Tag main
         shell: bash
         env:
           IMG: quay.io/${{ env.QUAY_ORG }}/${{ env.IMAGE_REPO_DSPO }}
           NEWEST_TAG: ${{ steps.tags.outputs.tag }}
         run: |
-          podman tag ${IMG}:${NEWEST_TAG} ${IMG}:odh-stable
-          podman push ${IMG}:odh-stable
+          podman tag ${IMG}:${NEWEST_TAG} ${IMG}:main
+          podman push ${IMG}:main
