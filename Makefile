@@ -49,23 +49,9 @@ endif
 # Image URL to use all building/pushing image targets
 IMG ?= quay.io/opendatahub/data-science-pipelines-operator:odh-stable
 
-# FIPS_ENABLED controls whether FIPS-compliant build flags are used.
-# Default is 1 (enabled) for production. Set to 0 for local builds on
-# Apple Silicon to avoid QEMU emulation issues with FIPS.
-FIPS_ENABLED ?= 1
-
 # TARGETARCH specifies the target architecture for the binary (amd64 or arm64).
 # Default is amd64.
 TARGETARCH ?= amd64
-
-# PLATFORM_FLAG controls the --platform argument for container builds.
-# When FIPS_ENABLED=0, we skip the platform flag to let the build run natively
-# and use Go's cross-compilation instead of QEMU emulation.
-ifeq ($(FIPS_ENABLED),0)
-PLATFORM_FLAG ?=
-else
-PLATFORM_FLAG ?= --platform linux/$(TARGETARCH)
-endif
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.34.0
@@ -160,6 +146,37 @@ integrationtest: ## Run integration tests
 	cd tests && \
 	go test ./... --tags=test_integration -v -kubeconfig=${KUBECONFIGPATH} -k8sApiServerHost=${K8SAPISERVERHOST} -DSPANamespace=${DSPANAMESPACE} -DSPAPath=${DSPAPATH} -endpointType=${ENDPOINT_TYPE} -MinioNamespace=${MINIONAMESPACE} -ArgoWorkflowsControllersManagementState=$(INTTEST_AWF_MANAGEMENT_STATE) -skipDeploy=$(INTTEST_SKIP_DEPLOY) -skipCleanup=$(INTTEST_SKIP_CLEANUP)
 
+##@ Chaos Testing
+
+CHAOS_RESOLVED_DIR ?= $(shell pwd)/tmp/chaos-resolved
+
+export DSPA_NAME ?= test-dspa
+export DSPA_NAMESPACE ?= test-dspa
+export OPERATOR_NAMESPACE ?= opendatahub
+export OPERATOR_DEPLOYMENT_NAME ?= data-science-pipelines-operator-controller-manager
+
+.PHONY: chaos-resolve
+chaos-resolve: ## Resolve chaos YAML templates with environment variables.
+	@rm -rf $(CHAOS_RESOLVED_DIR)
+	@for f in $$(find chaos/ -name '*.yaml' -type f); do \
+		resolved="$(CHAOS_RESOLVED_DIR)/$${f#chaos/}"; \
+		mkdir -p "$$(dirname "$$resolved")"; \
+		envsubst '$$DSPA_NAME $$DSPA_NAMESPACE $$OPERATOR_NAMESPACE $$OPERATOR_DEPLOYMENT_NAME' < "$$f" > "$$resolved"; \
+	done
+	@echo "Resolved chaos YAMLs to $(CHAOS_RESOLVED_DIR) with DSPA_NAME=$(DSPA_NAME) DSPA_NAMESPACE=$(DSPA_NAMESPACE) OPERATOR_NAMESPACE=$(OPERATOR_NAMESPACE)"
+
+.PHONY: chaos-validate
+chaos-validate: chaos-resolve ## Validate chaos knowledge models and experiment YAMLs (offline, no cluster needed).
+	go tool operator-chaos validate --knowledge $(CHAOS_RESOLVED_DIR)/knowledge/dspo-default.yaml
+	@for f in $$(find $(CHAOS_RESOLVED_DIR)/experiments -name '*.yaml' -type f); do \
+		echo "Validating $$f..."; \
+		go tool operator-chaos validate "$$f" || exit 1; \
+	done
+
+.PHONY: test-chaos
+test-chaos: envtest ## Run SDK chaos tests (envtest, no cluster needed).
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./controllers/ -v --tags=test_chaos -count=1
+
 ##@ Build
 
 .PHONY: build
@@ -172,7 +189,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: podman-build
 podman-build: ## Build container image with the manager.
-	podman build $(PLATFORM_FLAG) --build-arg FIPS_ENABLED=$(FIPS_ENABLED) --build-arg TARGETARCH=$(TARGETARCH) -t ${IMG} .
+	podman build --platform linux/$(TARGETARCH) --build-arg TARGETARCH=$(TARGETARCH) -t ${IMG} .
 
 .PHONY: podman-push
 podman-push: ## Push container image with the manager.

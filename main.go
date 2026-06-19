@@ -42,11 +42,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	admv1 "k8s.io/api/admissionregistration/v1"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -56,6 +54,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	//+kubebuilder:scaffold:imports
+	mlflowv1 "github.com/opendatahub-io/mlflow-operator/api/v1"
 )
 
 var (
@@ -110,6 +109,7 @@ func init() {
 	utilruntime.Must(routev1.AddToScheme(scheme))
 
 	utilruntime.Must(dspav1.AddToScheme(scheme))
+	utilruntime.Must(mlflowv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 
 	controllers.InitMetrics()
@@ -210,7 +210,9 @@ func main() {
 	dspSelector := labels.NewSelector().Add(*dspLabelReq)
 	dspFilter := cache.ByObject{Label: dspSelector}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restCfg := ctrl.GetConfigOrDie()
+
+	mgrOpts := ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: metricsAddr,
@@ -264,7 +266,14 @@ func main() {
 				},
 			},
 		},
-	})
+	}
+
+	// MLflow CRs are read during reconcile; always bypass the client cache so
+	// behavior does not depend on whether the CRD existed at operator startup.
+	mgrOpts.Client.Cache.DisableFor = append(mgrOpts.Client.Cache.DisableFor, &mlflowv1.MLflow{})
+	setupLog.Info("MLflow reads use direct API access (bypass controller-runtime client cache)")
+
+	mgr, err := ctrl.NewManager(restCfg, mgrOpts)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -293,6 +302,8 @@ func main() {
 
 	if err = (&controllers.DSPAReconciler{
 		Client:                  mgr.GetClient(),
+		APIReader:               mgr.GetAPIReader(),
+		MLflowEndpointCacheTTL:  controllers.DefaultMLflowEndpointCacheTTL,
 		Scheme:                  mgr.GetScheme(),
 		Log:                     ctrl.Log,
 		TemplatesPath:           "config/internal/",
