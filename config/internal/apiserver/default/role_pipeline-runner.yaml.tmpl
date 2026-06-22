@@ -141,3 +141,23 @@ rules:
       - list
       - patch
       - delete
+{{- if .GrantMlflowWorkloadRBAC }}
+  - apiGroups:
+      - mlflow.kubeflow.org
+    resources:
+      - experiments
+    verbs:
+      - create
+      - get
+      - list
+      - update
+  - apiGroups:
+      - mlflow.kubeflow.org
+    resources:
+      - runs
+    verbs:
+      - create
+      - get
+      - update
+      - list
+{{- end }}

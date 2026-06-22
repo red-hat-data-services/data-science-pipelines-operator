@@ -18,6 +18,7 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -25,12 +26,18 @@ import (
 	"github.com/go-logr/logr"
 	dspav1 "github.com/opendatahub-io/data-science-pipelines-operator/api/v1"
 	"github.com/opendatahub-io/data-science-pipelines-operator/controllers/testutil"
+	mlflowv1 "github.com/opendatahub-io/mlflow-operator/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 type Client struct {
@@ -462,4 +469,252 @@ func TestExtractParams_WithoutResourceTTL(t *testing.T) {
 	err := params.ExtractParams(ctx, dspa, client.Client, client.Log)
 	require.NoError(t, err)
 	assert.Empty(t, params.CompiledPipelineSpecPatch)
+}
+
+func testSchemeWithMlflowApps(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	utilruntime.Must(mlflowv1.AddToScheme(scheme))
+	utilruntime.Must(appsv1.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	return scheme
+}
+
+func TestBuildMLflowPluginConfigJson_DefaultCase(t *testing.T) {
+	t.Parallel()
+
+	const mlflowEp = "https://mlflow.test.svc.cluster.local/mlflow"
+
+	out, err := BuildMLflowPluginConfigJson(mlflowEp, "/var/trust/ca-bundle.crt", false, "https://test.example/host")
+	require.NoError(t, err)
+
+	var cfg map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(out), &cfg))
+	require.JSONEq(t, `"`+mlflowEp+`"`, string(cfg["endpoint"]))
+	require.JSONEq(t, `"30s"`, string(cfg["timeout"]))
+
+	var tls map[string]interface{}
+	require.NoError(t, json.Unmarshal(cfg["tls"], &tls))
+	require.Equal(t, false, tls["insecureSkipVerify"], "explicit false TLS verify must remain in JSON for consumers")
+	require.Equal(t, "/var/trust/ca-bundle.crt", tls["caBundlePath"])
+
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(cfg["settings"], &settings))
+	require.Equal(t, false, settings["injectUserEnvVars"])
+	require.Contains(t, settings, "workspacesEnabled")
+	require.Equal(t, true, settings["workspacesEnabled"])
+	require.Equal(t, "/mlflow", settings["mlflowUIPathPrefix"])
+	require.Equal(t, "https://test.example/host", settings["kfpBaseURL"])
+}
+
+func TestBuildMLflowPluginConfigJson_InjectUserEnvVarsTrue(t *testing.T) {
+	t.Parallel()
+
+	out, err := BuildMLflowPluginConfigJson(
+		"https://svc/mlflow",
+		"",
+		true,
+		"https://kfp.example/",
+	)
+	require.NoError(t, err)
+
+	var root map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(out), &root))
+
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(root["settings"], &settings))
+	require.Equal(t, true, settings["injectUserEnvVars"])
+}
+
+func TestValidateMLflowEndpointURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{name: "valid https", raw: "https://mlflow:5000/mlflow"},
+		{name: "valid http", raw: "http://mlflow.svc.cluster.local/mlflow"},
+		{name: "empty", raw: "", wantErr: true},
+		{name: "missing scheme", raw: "mlflow:5000/mlflow", wantErr: true},
+		{name: "scheme relative", raw: "//evil.example/mlflow", wantErr: true},
+		{name: "javascript scheme", raw: "javascript:alert(1)", wantErr: true},
+		{name: "missing host", raw: "https:///mlflow", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateMLflowEndpointURL(tt.raw)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "must be http/https with non-empty host")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestLookupMLflowEndpoint_NotFound(t *testing.T) {
+	t.Parallel()
+
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	_, err := lookupMLflowEndpoint(context.Background(), kc, "dsp-test", logr.Discard())
+	require.Error(t, err)
+	require.True(t, apierrs.IsNotFound(err))
+}
+
+func TestLookupMLflowEndpoint_MissingURL(t *testing.T) {
+	t.Parallel()
+
+	ml := &mlflowv1.MLflow{
+		ObjectMeta: metav1.ObjectMeta{Name: "mlflow", Namespace: "dsp-test"},
+		Status:     mlflowv1.MLflowStatus{},
+	}
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ml).Build()
+
+	_, err := lookupMLflowEndpoint(context.Background(), kc, "dsp-test", logr.Discard())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "MLflow resource missing Status.Address.URL")
+}
+
+func TestLookupMLflowEndpoint_Success(t *testing.T) {
+	t.Parallel()
+
+	const wantURL = "https://internal-mlflow:5000/mlflow"
+	ml := &mlflowv1.MLflow{
+		ObjectMeta: metav1.ObjectMeta{Name: "mlflow", Namespace: "dsp-ns"},
+		Status: mlflowv1.MLflowStatus{
+			Address: &mlflowv1.MLflowAddressStatus{URL: wantURL},
+		},
+	}
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ml).Build()
+
+	got, err := lookupMLflowEndpoint(context.Background(), kc, "dsp-ns", logr.Discard())
+	require.NoError(t, err)
+	require.Equal(t, wantURL, got)
+}
+
+func TestLookupMLflowEndpoint_InvalidURL(t *testing.T) {
+	t.Parallel()
+
+	ml := &mlflowv1.MLflow{
+		ObjectMeta: metav1.ObjectMeta{Name: "mlflow", Namespace: "dsp-ns"},
+		Status: mlflowv1.MLflowStatus{
+			Address: &mlflowv1.MLflowAddressStatus{URL: "javascript:alert(1)"},
+		},
+	}
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ml).Build()
+
+	_, err := lookupMLflowEndpoint(context.Background(), kc, "dsp-ns", logr.Discard())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid Status.Address.URL")
+	require.Contains(t, err.Error(), "must be http/https with non-empty host")
+}
+
+func TestIsAPIServerDeploymentReady_NotFound(t *testing.T) {
+	t.Parallel()
+
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	params := DSPAParams{
+		Namespace:                    "dsp-ns",
+		APIServerDefaultResourceName: "ds-pipeline-testdspa",
+	}
+	ready, err := params.IsAPIServerDeploymentReady(context.Background(), kc)
+	require.NoError(t, err)
+	require.False(t, ready)
+}
+
+func TestIsAPIServerDeploymentReady_Transitioning(t *testing.T) {
+	t.Parallel()
+
+	deploy := appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "ds-pipeline-testdspa", Namespace: "dsp-ns"},
+	}
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&deploy).Build()
+
+	params := DSPAParams{
+		Namespace:                    "dsp-ns",
+		APIServerDefaultResourceName: "ds-pipeline-testdspa",
+	}
+	ready, err := params.IsAPIServerDeploymentReady(context.Background(), kc)
+	require.NoError(t, err)
+	require.False(t, ready)
+}
+
+func TestIsAPIServerDeploymentReady_Available(t *testing.T) {
+	t.Parallel()
+
+	deploy := appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "ds-pipeline-testdspa", Namespace: "dsp-ns"},
+		Status: appsv1.DeploymentStatus{
+			Conditions: []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			},
+		},
+	}
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy.DeepCopy()).Build()
+
+	params := DSPAParams{
+		Namespace:                    "dsp-ns",
+		APIServerDefaultResourceName: "ds-pipeline-testdspa",
+	}
+	ready, err := params.IsAPIServerDeploymentReady(context.Background(), kc)
+	require.NoError(t, err)
+	require.True(t, ready)
+}
+
+func TestIsAPIServerDeploymentReady_WrongDeploymentName_ReturnsFalseNotFoundSemantics(t *testing.T) {
+	t.Parallel()
+
+	deploy := appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "some-other-deployment", Namespace: "dsp-ns"},
+	}
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy.DeepCopy()).Build()
+
+	params := DSPAParams{
+		Namespace:                    "dsp-ns",
+		APIServerDefaultResourceName: "ds-pipeline-testdspa",
+	}
+	ready, err := params.IsAPIServerDeploymentReady(context.Background(), kc)
+	require.NoError(t, err)
+	require.False(t, ready)
+}
+
+// Retrieves the MLflow CR named "mlflow" only.
+func TestLookupMLflowEndpoint_UsesMlflowNamedObject(t *testing.T) {
+	t.Parallel()
+
+	wrong := &mlflowv1.MLflow{
+		ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "dsp-ns"},
+		Status:     mlflowv1.MLflowStatus{Address: &mlflowv1.MLflowAddressStatus{URL: "https://x"}},
+	}
+	scheme := testSchemeWithMlflowApps(t)
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wrong).Build()
+
+	_, err := lookupMLflowEndpoint(context.Background(), kc, "dsp-ns", logr.Discard())
+	require.True(t, apierrs.IsNotFound(err))
+
+	ml := wrong.DeepCopy()
+	ml.Name = "mlflow"
+	kcWith := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ml).Build()
+	got, err := lookupMLflowEndpoint(context.Background(), kcWith, "dsp-ns", logr.Discard())
+	require.NoError(t, err)
+	require.Equal(t, "https://x", got)
 }
