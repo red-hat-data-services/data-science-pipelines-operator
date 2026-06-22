@@ -24,13 +24,17 @@ import (
 
 	dspav1 "github.com/opendatahub-io/data-science-pipelines-operator/api/v1"
 	"github.com/opendatahub-io/data-science-pipelines-operator/controllers/config"
+	"github.com/opendatahub-io/data-science-pipelines-operator/controllers/util"
 	v1 "github.com/openshift/api/route/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
 var apiServerTemplatesDir = "apiserver/default"
 
-const apiServerDefaultResourceNamePrefix = "ds-pipeline-"
+const (
+	apiServerDefaultResourceNamePrefix = "ds-pipeline-"
+	apiServerServerConfigTemplate      = "apiserver/default/server-config.yaml.tmpl"
+)
 
 // serverRoute is a resource deployed conditionally
 // as such it is handled separately
@@ -149,6 +153,9 @@ func (r *DSPAReconciler) ReconcileAPIServer(ctx context.Context, dsp *dspav1.Dat
 	if params.APIServerWorkspaceJSON != "" {
 		combinedConfigHashInput = sampleConfigJSON + params.APIServerWorkspaceJSON
 	}
+	if params.APIServerPluginsJson != "" {
+		combinedConfigHashInput += params.APIServerPluginsJson
+	}
 	combinedConfigHashInput += params.PlatformVersion
 	if params.APIServer != nil && params.APIServer.ManagedPipelines != nil {
 		managedSpec, err := json.Marshal(params.APIServer.ManagedPipelines)
@@ -164,11 +171,24 @@ func (r *DSPAReconciler) ReconcileAPIServer(ctx context.Context, dsp *dspav1.Dat
 		combinedConfigHashInput = combinedConfigHashInput + string(imgEnv)
 	}
 
-	// Config hash for pod rollout when sample config, workspace, managed pipelines, or platform version change.
+	// Config hash for pod rollout when sample config, workspace, plugins, managed pipelines, or platform version change.
 	params.APIServerConfigHash = fmt.Sprintf("%x", sha256.Sum256([]byte(combinedConfigHashInput)))
 
 	log.Info("Applying APIServer Resources")
-	err = r.ApplyDir(dsp, params, apiServerTemplatesDir)
+	if err := r.Apply(dsp, params, apiServerServerConfigTemplate); err != nil {
+		return err
+	}
+	templates, err := util.GetTemplatesInDir(r.TemplatesPath, apiServerTemplatesDir)
+	if err != nil {
+		return err
+	}
+	remainingTemplates := make([]string, 0, len(templates))
+	for _, template := range templates {
+		if template != apiServerServerConfigTemplate {
+			remainingTemplates = append(remainingTemplates, template)
+		}
+	}
+	err = r.ApplyAll(dsp, params, remainingTemplates)
 	if err != nil {
 		return err
 	}

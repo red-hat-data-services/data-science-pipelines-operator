@@ -103,3 +103,29 @@ rules:
       - get
     resources:
       - routes
+{{- if .GrantMlflowWorkloadRBAC }}
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+  - apiGroups:
+      - mlflow.kubeflow.org
+    resources:
+      - experiments
+    verbs:
+      - create
+      - get
+      - list
+      - update
+  - apiGroups:
+      - mlflow.kubeflow.org
+    resources:
+      - runs
+    verbs:
+      - create
+      - get
+      - update
+      - list
+{{- end }}
