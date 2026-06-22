@@ -55,6 +55,12 @@ type DSPASpec struct {
 	// Proxy configuration for all DSPA components to enable usage in environments requiring proxy access
 	// +kubebuilder:validation:Optional
 	Proxy *ProxyConfig `json:"proxy,omitempty"`
+
+	// MLflow configuration for the API server MLflow plugin.
+	// Omitting this field defaults to integrationMode AUTODETECT and injectUserEnvVars false.
+	// Set integrationMode to DISABLED to opt out of MLflow integration.
+	// +kubebuilder:validation:Optional
+	MLflow *MLflowConfig `json:"mlflow,omitempty"`
 }
 
 // +kubebuilder:validation:Pattern=`^(Managed|Removed)$`
@@ -465,6 +471,26 @@ type ComponentDetailStatus struct {
 	Url string `json:"url,omitempty"`
 	// +kubebuilder:validation:Optional
 	ExternalUrl string `json:"externalUrl,omitempty"`
+}
+
+// +kubebuilder:validation:Enum=AUTODETECT;DISABLED
+type IntegrationMode string
+
+const (
+	AutoDetect IntegrationMode = "AUTODETECT"
+	Disabled   IntegrationMode = "DISABLED"
+)
+
+type MLflowConfig struct {
+	// Indicates whether to enable MLflow plugin on API server if plugin installed on cluster,
+	// or disable entirely.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=AUTODETECT
+	IntegrationMode *IntegrationMode `json:"integrationMode,omitempty"`
+	// Indicates if user container env variables should be updated by KFP.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=false
+	InjectUserEnvVars *bool `json:"injectUserEnvVars,omitempty"`
 }
 
 //+kubebuilder:object:root=true

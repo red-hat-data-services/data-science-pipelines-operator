@@ -1,6 +1,10 @@
 module github.com/opendatahub-io/data-science-pipelines-operator
 
-go 1.25.7
+go 1.26
+
+godebug fips140=on
+
+toolchain go1.26.3
 
 require (
 	github.com/anthhub/forwarder v1.1.0
@@ -13,6 +17,8 @@ require (
 	github.com/manifestival/controller-runtime-client v0.4.0
 	github.com/manifestival/manifestival v0.7.2
 	github.com/minio/minio-go/v7 v7.0.99
+	github.com/opendatahub-io/mlflow-operator/api v0.0.0-20260331183147-5f8991ebee1a
+	github.com/opendatahub-io/operator-chaos v0.0.0-20260525094355-9e6ac9668b9a
 	github.com/openshift/api v0.0.0-20260331162130-f7b3bd900c75
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/viper v1.21.0
@@ -141,3 +147,5 @@ replace (
 	golang.org/x/net => golang.org/x/net v0.52.0
 	google.golang.org/grpc => google.golang.org/grpc v1.56.3
 )
+
+tool github.com/opendatahub-io/operator-chaos/cmd/operator-chaos
