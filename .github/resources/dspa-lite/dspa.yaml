@@ -12,7 +12,7 @@ spec:
         memory: 500Mi
       requests:
         cpu: 20m
-        memory: 100m
+        memory: 100Mi
   scheduledWorkflow:
     resources:
       limits:
@@ -20,7 +20,7 @@ spec:
         memory: 500Mi
       requests:
         cpu: 20m
-        memory: 100m
+        memory: 100Mi
   persistenceAgent:
     resources:
       limits:
@@ -68,4 +68,4 @@ spec:
           memory: 500Mi
         requests:
           cpu: 20m
-          memory: 100m
+          memory: 100Mi
