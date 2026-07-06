@@ -1,4 +1,6 @@
 name: Trigger build images for PRs
+permissions:
+  contents: read
 on:
   pull_request:
     paths:
