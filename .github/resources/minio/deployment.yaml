@@ -39,7 +39,7 @@ spec:
               memory: 500Mi
             requests:
               cpu: 20m
-              memory: 100m
+              memory: 100Mi
           name: minio
           env:
             - name: MINIO_ROOT_USER
