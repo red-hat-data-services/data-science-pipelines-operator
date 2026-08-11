@@ -1,6 +1,6 @@
 module github.com/opendatahub-io/data-science-pipelines-operator
 
-go 1.25.0
+go 1.26.3
 
 require (
 	github.com/anthhub/forwarder v1.1.0
