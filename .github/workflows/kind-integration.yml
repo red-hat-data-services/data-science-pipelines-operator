@@ -29,8 +29,8 @@ concurrency:
 
 env:
   GIT_WORKSPACE: ${{ github.workspace }}
-  DSP_SOURCE_DIR: ${{ github.workspace }}/dsp
-  ARGO_SOURCE_DIR: ${{ github.workspace }}/argo
+  DSP_SOURCE_DIR: ${{ runner.temp }}/dsp-src
+  ARGO_SOURCE_DIR: ${{ runner.temp }}/argo-src
   DSP_SOURCE_BRANCH: ${{ github.base_ref || github.ref_name }}
   ARGO_SOURCE_BRANCH: ${{ github.base_ref || github.ref_name }}
   CONTAINER_CLI: podman
@@ -46,19 +46,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout DSP
-        uses: actions/checkout@v3
-        with:
-          repository: red-hat-data-services/data-science-pipelines
-          ref: ${{ env.DSP_SOURCE_BRANCH }}
-          path: dsp
+      - name: Checkout DSP source
+        run: |
+          git clone --depth 1 --branch "${DSP_SOURCE_BRANCH}" \
+            https://github.com/red-hat-data-services/data-science-pipelines.git \
+            "${DSP_SOURCE_DIR}"
 
-      - name: Checkout Argo Workflows
-        uses: actions/checkout@v3
-        with:
-          repository: red-hat-data-services/argo-workflows
-          ref: ${{ env.ARGO_SOURCE_BRANCH }}
-          path: argo
+      - name: Checkout Argo source
+        run: |
+          git clone --depth 1 --branch "${ARGO_SOURCE_BRANCH}" \
+            https://github.com/red-hat-data-services/argo-workflows.git \
+            "${ARGO_SOURCE_DIR}"
 
       - name: Set up Go
         uses: actions/setup-go@v5
