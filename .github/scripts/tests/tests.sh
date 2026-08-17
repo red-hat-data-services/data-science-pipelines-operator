@@ -44,7 +44,7 @@ DSP_SOURCE_DIR="${DSP_SOURCE_DIR:-}"
 ARGO_SOURCE_DIR="${ARGO_SOURCE_DIR:-}"
 KIND_IMAGE_TAG="${KIND_IMAGE_TAG:-kind-ci}"
 BUILD_ARGO_IMAGES="${BUILD_ARGO_IMAGES:-true}"
-TESTS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TESTS_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 prepare_kind_params_env() {
   local kind_params="${CONFIG_DIR}/overlays/kind-tests/params.env"
@@ -390,7 +390,7 @@ setup_kind_requirements() {
   apply_crd
   build_image
   # shellcheck source=/dev/null
-  source "${TESTS_SCRIPT_DIR}/build_kind_images.sh"
+  . "${TESTS_SCRIPT_DIR}/build_kind_images.sh"
   build_kind_component_images
   prepare_kind_params_env
   create_opendatahub_namespace
