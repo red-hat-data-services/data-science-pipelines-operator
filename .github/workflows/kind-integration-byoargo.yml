@@ -14,6 +14,7 @@ on:
       - .github/actions/**
       - '.github/workflows/kind-integration-byoargo.yml'
       - '.github/scripts/tests/tests.sh'
+      - '.github/scripts/tests/build_kind_images.sh'
       - '.github/scripts/python_package_upload/**'
       - Makefile
     types:
@@ -28,16 +29,29 @@ concurrency:
 
 env:
   GIT_WORKSPACE: ${{ github.workspace }}
+  DSP_SOURCE_DIR: ${{ github.workspace }}/dsp
+  ARGO_SOURCE_DIR: ${{ github.workspace }}/argo
+  DSP_SOURCE_BRANCH: ${{ github.base_ref || github.ref_name }}
+  ARGO_SOURCE_BRANCH: ${{ github.base_ref || github.ref_name }}
+  CONTAINER_CLI: podman
+  KIND_IMAGE_TAG: kind-ci
 
 jobs:
   dspo-byoargo-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Checkout DSP
+        uses: actions/checkout@v3
+        with:
+          repository: red-hat-data-services/data-science-pipelines
+          ref: ${{ env.DSP_SOURCE_BRANCH }}
+          path: dsp
 
       - name: Set up Go
         uses: actions/setup-go@v5
