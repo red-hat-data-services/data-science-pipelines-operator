@@ -29,8 +29,6 @@ concurrency:
 
 env:
   GIT_WORKSPACE: ${{ github.workspace }}
-  DSP_SOURCE_DIR: ${{ runner.temp }}/dsp-src
-  ARGO_SOURCE_DIR: ${{ runner.temp }}/argo-src
   DSP_SOURCE_BRANCH: ${{ github.base_ref || github.ref_name }}
   ARGO_SOURCE_BRANCH: ${{ github.base_ref || github.ref_name }}
   CONTAINER_CLI: podman
@@ -40,6 +38,9 @@ jobs:
   dspo-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      DSP_SOURCE_DIR: ${{ runner.temp }}/dsp-src
+      ARGO_SOURCE_DIR: ${{ runner.temp }}/argo-src
 
     steps:
       - uses: actions/checkout@v3
