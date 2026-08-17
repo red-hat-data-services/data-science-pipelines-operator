@@ -38,14 +38,16 @@ jobs:
   dspo-byoargo-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      DSP_SOURCE_DIR: ${{ runner.temp }}/dsp-src
-      ARGO_SOURCE_DIR: ${{ runner.temp }}/argo-src
 
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Set component source paths
+        run: |
+          echo "DSP_SOURCE_DIR=${RUNNER_TEMP}/dsp-src" >> "${GITHUB_ENV}"
+          echo "ARGO_SOURCE_DIR=${RUNNER_TEMP}/argo-src" >> "${GITHUB_ENV}"
 
       - name: Checkout DSP source
         run: |
