@@ -27,7 +27,7 @@ USER root
 # Build
 RUN GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} GOFIPS140=v1.0.0 go build -tags no_openssl -a -o manager .
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7c372902c8d211db2d25c8277ba534a73b92742a334874dced829a63b0f21221 AS runtime
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:692953368d8e630f40a3c0a6135163f8824fdafc26e0400b9a6c8d7fac850366 AS runtime
 
 ## Build args to be used at this step
 ARG USER=65532
