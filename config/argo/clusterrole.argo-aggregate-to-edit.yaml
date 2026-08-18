@@ -30,3 +30,20 @@ rules:
   - patch
   - update
   - watch
+# Application CRD permissions are required for namespace-scoped admin/edit users.
+# The app.k8s.io/Application CRD is deployed by DSPO (see crd.applications.yaml)
+# but without these aggregation rules, users with namespace-scoped admin/edit roles
+# cannot list applications, causing "oc get all" to fail with forbidden errors.
+- apiGroups:
+  - app.k8s.io
+  resources:
+  - applications
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
