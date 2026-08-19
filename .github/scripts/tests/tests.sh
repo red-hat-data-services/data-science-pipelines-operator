@@ -24,7 +24,7 @@ MARIADB_NAMESPACE="test-mariadb"
 PYPISERVER_NAMESPACE="test-pypiserver"
 CERT_MANAGER_NAMESPACE="cert-manager"
 ARGO_NAMESPACE="argo"
-ARGO_VERSION="v3.6.7"
+ARGO_VERSION="v3.6.12"
 DEPLOY_EXTERNAL_ARGO=false
 AWF_MANAGEMENT_STATE="Managed"
 DSPA_DEPLOY_WAIT_TIMEOUT="300"
@@ -137,6 +137,28 @@ data:
 EOF
 )"
   kubectl -n $ARGO_NAMESPACE patch configmap workflow-controller-configmap --type='merge' --patch "$workflow_defaults_patch"
+
+  echo "---------------------------------"
+  echo "Configure Argo executor to use nonroot image"
+  echo "---------------------------------"
+  ARGO_EXEC_NONROOT="quay.io/argoproj/argoexec:${ARGO_VERSION}-nonroot"
+  PATCH_JSON=$(python3 -c '
+import json, sys
+executor = json.dumps({
+    "image": sys.argv[1],
+    "imagePullPolicy": "IfNotPresent",
+    "securityContext": {
+        "runAsNonRoot": True,
+        "runAsUser": 65532,
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "seccompProfile": {"type": "RuntimeDefault"}
+    }
+})
+print(json.dumps({"data": {"executor": executor}}))
+' "$ARGO_EXEC_NONROOT")
+  kubectl patch configmap workflow-controller-configmap -n "$ARGO_NAMESPACE" --type=merge -p "$PATCH_JSON"
+
   kubectl -n $ARGO_NAMESPACE rollout restart deployment workflow-controller
   kubectl -n $ARGO_NAMESPACE rollout status deployment workflow-controller --timeout=180s
 }
