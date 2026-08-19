@@ -19,7 +19,12 @@ data:
         "ConMaxLifeTime": "120s"
       },
       "ObjectStoreConfig": {
-        "PipelinePath": "pipelines"
+        "PipelinePath": "pipelines",
+        "Host": "minio-testdsp0.default.svc.cluster.local",
+        "Port": "9000",
+        "Secure": false,
+        "Region": "minio",
+        "BucketName": "mlpipeline"
       },
       "DBDriverName": "mysql",
       "ARCHIVE_CONFIG_LOG_FILE_NAME": "main.log",
