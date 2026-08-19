@@ -111,7 +111,7 @@ spec:
           args:
             - --config=/config
             - -logtostderr=true
-            - --sampleconfig=/config/sample_config.json
+            - --sampleconfig=/config/sample-config/sample_config.json
           ports:
             - containerPort: 8888
               name: http
@@ -140,9 +140,8 @@ spec:
             - name: server-config
               mountPath: /config/config.json
               subPath: config.json
-            - mountPath: /config/sample_config.json
+            - mountPath: /config/sample-config
               name: sample-config
-              subPath: sample_config.json
             - mountPath: /samples/
               name: sample-pipeline
         - name: kube-rbac-proxy
@@ -210,9 +209,11 @@ spec:
         - name: sample-config
           configMap:
             name: sample-config-testdsp6
+            optional: true
             defaultMode: 420
         - name: sample-pipeline
           configMap:
             name: sample-pipeline-testdsp6
+            optional: true
             defaultMode: 420
       serviceAccountName: ds-pipeline-testdsp6
