@@ -31,7 +31,6 @@ import (
 func (suite *IntegrationTestSuite) TestPipelineSuccessfulRun() {
 
 	suite.T().Run("Should create a Pipeline Run", func(t *testing.T) {
-
 		if suite.DSPA.Spec.APIServer.PipelineStore == "kubernetes" {
 			t.Log("PipelineStore is set to kubernetes, skipping this test.")
 			t.SkipNow()

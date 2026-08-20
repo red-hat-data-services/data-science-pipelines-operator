@@ -48,6 +48,13 @@ jobs:
       - name: Setup and start KinD cluster
         uses: ./.github/actions/kind
 
+      - name: Build and push DSP images
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash .github/scripts/build_dsp_images.sh
+        env:
+          REGISTRY_ADDRESS: ${{ env.REGISTRY_ADDRESS }}
+
       - name: Run test
         id: test
         working-directory: ${{ github.workspace }}/.github/scripts/tests

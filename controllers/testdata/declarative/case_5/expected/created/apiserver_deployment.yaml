@@ -123,7 +123,7 @@ spec:
           args:
             - --config=/config
             - -logtostderr=true
-            - --sampleconfig=/config/sample_config.json
+            - --sampleconfig=/config/sample-config/sample_config.json
             - --tlsCertPath=/etc/tls/private/tls.crt
             - --tlsCertKeyPath=/etc/tls/private/tls.key
           ports:
@@ -156,9 +156,8 @@ spec:
               subPath: config.json
             - mountPath: /etc/tls/private
               name: proxy-tls
-            - mountPath: /config/sample_config.json
+            - mountPath: /config/sample-config
               name: sample-config
-              subPath: sample_config.json
             - mountPath: /samples/
               name: sample-pipeline
             - name: ca-bundle
@@ -235,9 +234,11 @@ spec:
         - configMap:
             defaultMode: 420
             name: sample-config-testdsp5
+            optional: true
           name: sample-config
         - configMap:
             defaultMode: 420
             name: sample-pipeline-testdsp5
+            optional: true
           name: sample-pipeline
       serviceAccountName: ds-pipeline-testdsp5
