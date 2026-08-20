@@ -4,11 +4,10 @@ on:
     workflows: ["Trigger build images for PRs"]
     types:
       - completed
+permissions: {}
 env:
   IMAGE_REPO_DSPO: data-science-pipelines-operator
   QUAY_ORG: opendatahub
-  QUAY_ID: ${{ secrets.QUAY_ID }}
-  QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
   GH_USER_EMAIL: 140449482+dsp-developers@users.noreply.github.com
   GH_USER_NAME: dsp-developers
 jobs:
@@ -52,6 +51,24 @@ jobs:
           pr_state=$(cat ./pr_state)
           head_sha=$(cat ./head_sha)
           event_action=$(cat ./event_action)
+
+          if [[ ! "$pr_number" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid PR Number: must be numeric"
+            exit 1
+          fi
+          if [[ ! "$pr_state" =~ ^(open|closed)$ ]]; then
+            echo "::error::Invalid PR State: must be 'open' or 'closed'"
+            exit 1
+          fi
+          if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid head_sha: must be a 40-character hex SHA"
+            exit 1
+          fi
+          if [[ ! "$event_action" =~ ^(opened|reopened|closed|synchronize)$ ]]; then
+            echo "::error::Invalid Event Action: unexpected value"
+            exit 1
+          fi
+
           echo "pr_number=${pr_number}" >> $GITHUB_OUTPUT
           echo "pr_state=${pr_state}" >> $GITHUB_OUTPUT
           echo "head_sha=${head_sha}" >> $GITHUB_OUTPUT
@@ -59,6 +76,9 @@ jobs:
 
   build-pr-image:
     if: needs.fetch-data.outputs.pr_state == 'open'
+    permissions:
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     needs: fetch-data
     concurrency:
@@ -71,6 +91,9 @@ jobs:
       - uses: actions/checkout@v3
       - name: Build Image
         uses: ./.github/actions/build
+        env:
+          QUAY_ID: ${{ secrets.QUAY_ID }}
+          QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
         with:
           OVERWRITE: true
           IMAGE_REPO: ${{ env.IMAGE_REPO_DSPO }}
@@ -79,58 +102,57 @@ jobs:
       - name: Echo PR metadata
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.ACCESS_TOKEN }}
-          IMG: quay.io/${{ env.QUAY_ORG }}/${{ env.IMAGE_REPO_DSPO }}:${{ env.TARGET_IMAGE_TAG }}
+          HEAD_SHA: ${{ needs.fetch-data.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.fetch-data.outputs.pr_number }}
+          PR_STATE: ${{ needs.fetch-data.outputs.pr_state }}
+          EVENT_ACTION: ${{ needs.fetch-data.outputs.event_action }}
         run: |
-          echo ${{ needs.fetch-data.outputs.head_sha }}
-          echo ${{ needs.fetch-data.outputs.pr_number }}
-          echo ${{ needs.fetch-data.outputs.pr_state }}
-          echo ${{ needs.fetch-data.outputs.event_action }}
+          echo "$HEAD_SHA"
+          echo "$PR_NUMBER"
+          echo "$PR_STATE"
+          echo "$EVENT_ACTION"
       - name: Send comment
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.ACCESS_TOKEN }}
           IMG: quay.io/${{ env.QUAY_ORG }}/${{ env.IMAGE_REPO_DSPO }}:${{ env.TARGET_IMAGE_TAG }}
+          EVENT_ACTION: ${{ needs.fetch-data.outputs.event_action }}
+          PR_NUMBER: ${{ needs.fetch-data.outputs.pr_number }}
+          PR_SOURCE_BRANCH: ${{ needs.fetch-data.outputs.head_sha }}
         run: |
-          git config user.email "${{ env.GH_USER_EMAIL }}"
-          git config user.name "${{ env.GH_USER_NAME }}"
+          git config user.email "${GH_USER_EMAIL}"
+          git config user.name "${GH_USER_NAME}"
 
-          action=${{ needs.fetch-data.outputs.event_action }}
-
-          if [[ "$action" == "synchronize" ]]; then
+          if [[ "$EVENT_ACTION" == "synchronize" ]]; then
             echo "Change to PR detected. A new PR build was completed." >> /tmp/body-file.txt
           fi
 
-          if [[ "$action" == "reopened" ]]; then
+          if [[ "$EVENT_ACTION" == "reopened" ]]; then
             echo "PR was re-opened." >> /tmp/body-file.txt
           fi
 
-          cat <<"EOF" >> /tmp/body-file.txt
-            A new image has been built to help with testing out this PR: `${{ env.IMG }}`
-          EOF
+          echo "A new image has been built to help with testing out this PR: \`${IMG}\`" >> /tmp/body-file.txt
 
-          if [[ "$action" == "opened" || "$action" == "reopened" ]]; then
-          cat <<"EOF" >> /tmp/body-file.txt
-          An OCP cluster where you are logged in as cluster admin is required.
-
-          To use this image run the following:
-
-          ```bash
-          cd $(mktemp -d)
-          git clone git@github.com:opendatahub-io/data-science-pipelines-operator.git
-          cd data-science-pipelines-operator/
-          git fetch origin pull/${{ needs.fetch-data.outputs.pr_number }}/head
-          git checkout -b pullrequest ${{ env.SOURCE_BRANCH }}
-          oc new-project opendatahub
-          make deploy IMG="${{ env.IMG }}"
-          ```
-
-          More instructions [here](https://github.com/opendatahub-io/data-science-pipelines-operator#deploy-dsp-instance) on how to deploy and test a Data Science Pipelines Application.
-
-          EOF
+          if [[ "$EVENT_ACTION" == "opened" || "$EVENT_ACTION" == "reopened" ]]; then
+            echo "" >> /tmp/body-file.txt
+            echo "An OCP cluster where you are logged in as cluster admin is required." >> /tmp/body-file.txt
+            echo "" >> /tmp/body-file.txt
+            echo "To use this image run the following:" >> /tmp/body-file.txt
+            echo "" >> /tmp/body-file.txt
+            echo '```bash' >> /tmp/body-file.txt
+            echo 'cd $(mktemp -d)' >> /tmp/body-file.txt
+            echo 'git clone git@github.com:opendatahub-io/data-science-pipelines-operator.git' >> /tmp/body-file.txt
+            echo 'cd data-science-pipelines-operator/' >> /tmp/body-file.txt
+            echo "git fetch origin pull/${PR_NUMBER}/head" >> /tmp/body-file.txt
+            echo "git checkout -b pullrequest ${PR_SOURCE_BRANCH}" >> /tmp/body-file.txt
+            echo 'oc new-project opendatahub' >> /tmp/body-file.txt
+            echo "make deploy IMG=\"${IMG}\"" >> /tmp/body-file.txt
+            echo '```' >> /tmp/body-file.txt
+            echo "" >> /tmp/body-file.txt
+            echo "More instructions [here](https://github.com/opendatahub-io/data-science-pipelines-operator#deploy-dsp-instance) on how to deploy and test a Data Science Pipelines Application." >> /tmp/body-file.txt
           fi
 
-          gh pr comment ${{ needs.fetch-data.outputs.pr_number }} --body-file /tmp/body-file.txt
+          gh pr comment "${PR_NUMBER}" --body-file /tmp/body-file.txt
 
   clean-pr-images:
     if: needs.fetch-data.outputs.pr_state == 'closed'
@@ -144,13 +166,16 @@ jobs:
     steps:
       - name: Delete PR image
         shell: bash
+        env:
+          QUAY_ID: ${{ secrets.QUAY_ID }}
+          QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
         run: |
-          tag=$(curl --request GET 'https://quay.io/api/v1/repository/${{ env.QUAY_ORG }}/${{ env.IMAGE_REPO_DSPO }}/tag/?specificTag=${{ env.TARGET_IMAGE_TAG }}')
+          tag=$(curl --request GET "https://quay.io/api/v1/repository/${QUAY_ORG}/${IMAGE_REPO_DSPO}/tag/?specificTag=${TARGET_IMAGE_TAG}")
           exists=$(echo ${tag} | yq .tags - | yq any)
-          IMAGE=quay.io/${{ env.QUAY_ORG }}/${{ env.IMAGE_REPO_DSPO }}:${{ env.TARGET_IMAGE_TAG }}
+          IMAGE="quay.io/${QUAY_ORG}/${IMAGE_REPO_DSPO}:${TARGET_IMAGE_TAG}"
           if [[ "$exists" == "true" ]]; then
-            echo "PR Closed deleting image...${{ env.IMAGE }}."
-            skopeo delete --creds ${{ env.QUAY_ID }}:${{ env.QUAY_TOKEN }} docker://${IMAGE}
+            echo "PR Closed deleting image...${IMAGE}."
+            skopeo delete --creds "${QUAY_ID}:${QUAY_TOKEN}" docker://${IMAGE}
           else
             echo "Deletion of image ${IMAGE} skipped because image already does not exist."
           fi
