@@ -339,9 +339,11 @@ spec:
         - configMap:
             defaultMode: 420
             name: sample-config-testdsp3
+            optional: true
           name: sample-config
         - configMap:
             defaultMode: 420
             name: sample-pipeline-testdsp3
+            optional: true
           name: sample-pipeline
       serviceAccountName: ds-pipeline-testdsp3

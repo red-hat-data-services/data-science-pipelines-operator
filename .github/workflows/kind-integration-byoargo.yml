@@ -48,11 +48,16 @@ jobs:
       - name: Setup and start KinD cluster
         uses: ./.github/actions/kind
 
+      - name: Build and push DSP images
+        run: bash ${{ github.workspace }}/.github/scripts/build_dsp_images.sh
+        env:
+          GIT_WORKSPACE: ${{ github.workspace }}
+
       - name: Run test
         id: test
         working-directory: ${{ github.workspace }}/.github/scripts/tests
         run: |
-          sh tests.sh --kind --deploy-external-argo
+          bash tests.sh --kind --deploy-external-argo
         continue-on-error: true
 
       - name: Collect events and logs
