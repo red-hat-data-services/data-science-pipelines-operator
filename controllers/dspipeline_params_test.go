@@ -851,19 +851,28 @@ func TestExtractParams_CredentialsFromEnv(t *testing.T) {
 
 func TestSetupObjectParams_CredentialsFromEnv(t *testing.T) {
 	tests := []struct {
-		name                 string
-		credentialsFromEnv   bool
-		shouldRetrieveSecret bool
+		name                      string
+		missingCredentialsFromEnv bool
+		credentialsFromEnv        bool
+		shouldRetrieveSecret      bool
 	}{
 		{
-			name:                 "credentialsFromEnv true - skip secret retrieval",
-			credentialsFromEnv:   true,
-			shouldRetrieveSecret: false,
+			name:                      "credentialsFromEnv true - skip secret retrieval",
+			missingCredentialsFromEnv: false,
+			credentialsFromEnv:        true,
+			shouldRetrieveSecret:      false,
 		},
 		{
-			name:                 "credentialsFromEnv false - retrieve from secret",
-			credentialsFromEnv:   false,
-			shouldRetrieveSecret: true,
+			name:                      "credentialsFromEnv false - retrieve from secret",
+			missingCredentialsFromEnv: false,
+			credentialsFromEnv:        false,
+			shouldRetrieveSecret:      true,
+		},
+		{
+			name:                      "credentialsFromEnv not set - retrieve from secret",
+			missingCredentialsFromEnv: true,
+			credentialsFromEnv:        false,
+			shouldRetrieveSecret:      true,
 		},
 	}
 
@@ -885,6 +894,9 @@ func TestSetupObjectParams_CredentialsFromEnv(t *testing.T) {
 					},
 				},
 			}
+			if tt.missingCredentialsFromEnv {
+				dspa.Spec.ObjectStorage.CredentialsMode = nil
+			}
 
 			ctx, params, client := CreateNewTestObjects()
 
@@ -904,9 +916,11 @@ func TestSetupObjectParams_CredentialsFromEnv(t *testing.T) {
 			err := params.ExtractParams(ctx, dspa, client.Client, client.Log)
 			require.NoError(t, err)
 
-			// Verify FromEnv was set correctly
-			require.NotNil(t, params.CredentialsMode)
-			assert.Equal(t, tt.credentialsFromEnv, params.CredentialsMode.FromEnv)
+			// Verify FromEnv was set correctly, unless credentialsMode not included at all
+			if !tt.missingCredentialsFromEnv {
+				require.NotNil(t, params.CredentialsMode)
+				assert.Equal(t, tt.credentialsFromEnv, params.CredentialsMode.FromEnv)
+			}
 
 			// SetupObjectParams should be called during ExtractParams
 			// When credentialsFromEnv is true, AccessKeyID and SecretAccessKey should be empty
