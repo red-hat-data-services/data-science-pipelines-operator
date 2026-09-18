@@ -29,11 +29,12 @@ import (
 
 	"os"
 
+	"encoding/json"
+
 	"github.com/go-logr/logr"
 	"github.com/go-sql-driver/mysql"
 	dspav1 "github.com/opendatahub-io/data-science-pipelines-operator/api/v1"
 	"github.com/opendatahub-io/data-science-pipelines-operator/controllers/config"
-	"k8s.io/apimachinery/pkg/util/json"
 )
 
 const dbSecret = "mariadb/generated-secret/secret.yaml.tmpl"
@@ -106,6 +107,13 @@ func createMySQLConfig(user, password string, mysqlServiceHost string,
 		Params:               params,
 		DBName:               dbName,
 		AllowNativePasswords: true,
+		// Defense-in-depth: explicitly disable dangerous driver options.
+		// These are re-applied after FormatDSN+ParseDSN normalization in
+		// ConnectAndQueryDatabase to ensure they cannot be overridden.
+		AllowAllFiles:            false,
+		AllowCleartextPasswords:  false,
+		AllowOldPasswords:        false,
+		AllowFallbackToPlaintext: false,
 	}
 }
 
@@ -133,7 +141,7 @@ var ConnectAndQueryDatabase = func(
 	var tlsConfig *cryptoTls.Config
 	switch tls {
 	case "false", "":
-		// don't set anything
+		log.Info("WARNING: database TLS is disabled; the database connection is not encrypted")
 	case "true":
 		var err error
 		tlsConfig, err = tLSClientConfig(pemCerts)
@@ -142,30 +150,42 @@ var ConnectAndQueryDatabase = func(
 			return false, err
 		}
 	case "skip-verify", "preferred":
+		log.Info("WARNING: database TLS mode does not provide reliable security; use tls=true with a trusted CA bundle")
 		tlsConfig = &cryptoTls.Config{InsecureSkipVerify: true}
 	default:
-		// Unknown config, default to don't set anything
+		log.Info("WARNING: database TLS mode is not recognized; the database connection may not be encrypted")
 	}
 
-	// Only register tls config in the case of: "true", "skip-verify", "preferred"
+	// Only register a custom TLS config for the verified "true" mode.
 	if tlsConfig != nil {
 		err := mysql.RegisterTLSConfig("custom", tlsConfig)
-		// If ExtraParams{"tls": ".."} is set, that should take precedent over mysqlConfig.TLSConfig
-		// so we need to make sure we're setting our tls config to be used instead if it exists
-		if _, ok := mysqlConfig.Params["tls"]; ok {
-			mysqlConfig.Params["tls"] = "custom"
-		}
-		// Just to be safe, we also set it here, fallback from mysqlConfig.Params["tls"] not being set
-		mysqlConfig.TLSConfig = "custom"
 		if err != nil {
 			return false, err
 		}
+		mysqlConfig.TLSConfig = "custom"
+		delete(mysqlConfig.Params, "tls") // prevent Params["tls"] from overwriting TLSConfig during normalization
 	}
 
-	db, err := sql.Open("mysql", mysqlConfig.FormatDSN())
+	// Normalize the config: FormatDSN+ParseDSN extracts driver-recognized
+	// keys (tls, timeout, readTimeout, collation, etc.) from the Params map
+	// into their corresponding Config struct fields. Without this, NewConnector
+	// would leave them in Params and handleParams would send them as invalid
+	// SET statements to MariaDB. Only true server-side variables (like
+	// sql_mode) remain in Params after normalization.
+	normalized, err := mysql.ParseDSN(mysqlConfig.FormatDSN())
 	if err != nil {
 		return false, err
 	}
+	normalized.AllowAllFiles = false
+	normalized.AllowCleartextPasswords = false
+	normalized.AllowOldPasswords = false
+	normalized.AllowFallbackToPlaintext = false
+
+	connector, err := mysql.NewConnector(normalized)
+	if err != nil {
+		return false, err
+	}
+	db := sql.OpenDB(connector)
 	defer db.Close()
 
 	testStatement := "SELECT 1;"
@@ -206,7 +226,7 @@ func (r *DSPAReconciler) isDatabaseAccessible(dsp *dspav1.DataSciencePipelinesAp
 		return false, err
 	}
 
-	// tls can be true, false, skip-verify, preferred
+	// tls can be true, false, skip-verify, or preferred.
 	// we default to true if it's an externalDB, false otherwise
 	// (if not specified via CustomExtraParams)
 	tls := "false"
