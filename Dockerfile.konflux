@@ -20,6 +20,8 @@ RUN GOTOOLCHAIN=local go mod download
 COPY main.go main.go
 COPY api/ api/
 COPY controllers/ controllers/
+COPY config/argo/ config/argo/
+COPY config/prometheus/ config/prometheus/
 COPY config/internal config/internal
 
 USER root
