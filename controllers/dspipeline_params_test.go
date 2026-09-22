@@ -849,6 +849,24 @@ func TestExtractParams_CredentialsFromEnv(t *testing.T) {
 	}
 }
 
+func TestExtractParams_ExternalStorageRequiresCredentialsSecret(t *testing.T) {
+	dspa := testutil.CreateEmptyDSPA()
+	dspa.Spec.ObjectStorage = &dspav1.ObjectStorage{
+		ExternalStorage: &dspav1.ExternalStorage{
+			Host:   "s3.amazonaws.com",
+			Bucket: "my-bucket",
+			Scheme: "https",
+			CredentialsMode: &dspav1.CredentialsMode{
+				FromEnv: false,
+			},
+		},
+	}
+
+	ctx, params, client := CreateNewTestObjects()
+	err := params.ExtractParams(ctx, dspa, client.Client, client.Log)
+	require.EqualError(t, err, "s3CredentialsSecret is required unless credentialsMode.fromEnv is true")
+}
+
 func TestSetupObjectParams_CredentialsFromEnv(t *testing.T) {
 	tests := []struct {
 		name                 string
