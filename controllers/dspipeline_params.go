@@ -467,22 +467,23 @@ func (p *DSPAParams) SetupObjectParams(ctx context.Context, dsp *dspa.DataScienc
 		// Retrieve ObjStore Creds from specified secret, unless auth values set by env vars (p.EnvAuth = true)
 		// Ignore error if the secret simply doesn't exist (will be created later)
 		if !p.CredentialsMode.IsFromEnv() {
-			if dsp.Spec.ObjectStorage.ExternalStorage.S3CredentialSecret != nil {
-				p.ObjectStorageConnection.CredentialsSecret = dsp.Spec.ObjectStorage.ExternalStorage.S3CredentialSecret
-
-				accesskey, err := p.RetrieveSecret(ctx, client, p.ObjectStorageConnection.CredentialsSecret.SecretName, p.ObjectStorageConnection.CredentialsSecret.AccessKey, log)
-				if err != nil && !apierrs.IsNotFound(err) {
-					log.Error(err, "Unexpected error encountered while fetching Object Storage Secret")
-					return err
-				}
-				secretkey, err := p.RetrieveSecret(ctx, client, p.ObjectStorageConnection.CredentialsSecret.SecretName, p.ObjectStorageConnection.CredentialsSecret.SecretKey, log)
-				if err != nil && !apierrs.IsNotFound(err) {
-					log.Error(err, "Unexpected error encountered while fetching Object Storage Secret")
-					return err
-				}
-				p.ObjectStorageConnection.AccessKeyID = accesskey
-				p.ObjectStorageConnection.SecretAccessKey = secretkey
+			if dsp.Spec.ObjectStorage.ExternalStorage.S3CredentialSecret == nil {
+				return fmt.Errorf("s3CredentialsSecret is required unless credentialsMode.fromEnv is true")
 			}
+			p.ObjectStorageConnection.CredentialsSecret = dsp.Spec.ObjectStorage.ExternalStorage.S3CredentialSecret
+
+			accesskey, err := p.RetrieveSecret(ctx, client, p.ObjectStorageConnection.CredentialsSecret.SecretName, p.ObjectStorageConnection.CredentialsSecret.AccessKey, log)
+			if err != nil && !apierrs.IsNotFound(err) {
+				log.Error(err, "Unexpected error encountered while fetching Object Storage Secret")
+				return err
+			}
+			secretkey, err := p.RetrieveSecret(ctx, client, p.ObjectStorageConnection.CredentialsSecret.SecretName, p.ObjectStorageConnection.CredentialsSecret.SecretKey, log)
+			if err != nil && !apierrs.IsNotFound(err) {
+				log.Error(err, "Unexpected error encountered while fetching Object Storage Secret")
+				return err
+			}
+			p.ObjectStorageConnection.AccessKeyID = accesskey
+			p.ObjectStorageConnection.SecretAccessKey = secretkey
 		}
 	} else {
 		if p.Minio == nil {

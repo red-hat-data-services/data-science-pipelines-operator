@@ -419,6 +419,7 @@ type Resources struct {
 	Memory resource.Quantity `json:"memory,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.s3CredentialsSecret) || (has(self.credentialsMode) && self.credentialsMode.fromEnv)",message="s3CredentialsSecret is required unless credentialsMode.fromEnv is true"
 type ExternalStorage struct {
 	// +kubebuilder:validation:Required
 	Host   string `json:"host"`
