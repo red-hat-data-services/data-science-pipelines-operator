@@ -14,6 +14,7 @@ on:
       - .github/actions/**
       - '.github/workflows/kind-integration.yml'
       - '.github/scripts/tests/tests.sh'
+      - '.github/scripts/tests/build_kind_images.sh'
       - '.github/scripts/python_package_upload/**'
       - Makefile
     types:
@@ -28,16 +29,37 @@ concurrency:
 
 env:
   GIT_WORKSPACE: ${{ github.workspace }}
+  DSP_SOURCE_BRANCH: ${{ github.base_ref || github.ref_name }}
+  ARGO_SOURCE_BRANCH: ${{ github.base_ref || github.ref_name }}
+  CONTAINER_CLI: podman
+  KIND_IMAGE_TAG: kind-ci
 
 jobs:
   dspo-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Set component source paths
+        run: |
+          echo "DSP_SOURCE_DIR=${RUNNER_TEMP}/dsp-src" >> "${GITHUB_ENV}"
+          echo "ARGO_SOURCE_DIR=${RUNNER_TEMP}/argo-src" >> "${GITHUB_ENV}"
+
+      - name: Checkout DSP source
+        run: |
+          git clone --depth 1 --branch "${DSP_SOURCE_BRANCH}" \
+            https://github.com/red-hat-data-services/data-science-pipelines.git \
+            "${DSP_SOURCE_DIR}"
+
+      - name: Checkout Argo source
+        run: |
+          git clone --depth 1 --branch "${ARGO_SOURCE_BRANCH}" \
+            https://github.com/red-hat-data-services/argo-workflows.git \
+            "${ARGO_SOURCE_DIR}"
 
       - name: Set up Go
         uses: actions/setup-go@v5
