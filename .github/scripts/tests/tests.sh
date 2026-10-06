@@ -155,15 +155,15 @@ deploy_dspo_kind() {
   ( cd $GIT_WORKSPACE && make deploy-kind -e IMG="$IMG" )
 }
 
-deploy_minio() {
+deploy_seaweedfs() {
   echo "---------------------------------"
-  echo "Create Minio Namespace"
+  echo "Create Object Store Namespace"
   echo "---------------------------------"
   kubectl create namespace $MINIO_NAMESPACE
   echo "---------------------------------"
-  echo "Deploy Minio"
+  echo "Deploy SeaweedFS"
   echo "---------------------------------"
-  ( cd "${GIT_WORKSPACE}/.github/resources/minio" && kubectl -n $MINIO_NAMESPACE apply -k . )
+  ( cd "${GIT_WORKSPACE}/.github/resources/seaweedfs" && kubectl -n $MINIO_NAMESPACE apply -k . )
 }
 
 deploy_mariadb() {
@@ -270,10 +270,14 @@ wait_for_dspo_redeploy() {
 
 wait_for_dependencies() {
   echo "---------------------------------"
-  echo "Wait for Dependencies (Minio, Mariadb, Pypi server)"
+  echo "Wait for Dependencies (SeaweedFS, Mariadb, Pypi server)"
   echo "---------------------------------"
   kubectl wait -n $MARIADB_NAMESPACE --timeout=60s --for=condition=Available=true deployment mariadb
-  kubectl wait -n $MINIO_NAMESPACE --timeout=60s --for=condition=Available=true deployment minio
+  if ! kubectl wait -n $MINIO_NAMESPACE --timeout=300s --for=condition=Available=true deployment seaweedfs; then
+    kubectl -n $MINIO_NAMESPACE describe pods || true
+    kubectl -n $MINIO_NAMESPACE logs deployment/seaweedfs --all-containers=true || true
+    return 1
+  fi
   kubectl wait -n $PYPISERVER_NAMESPACE --timeout=60s --for=condition=Available=true deployment pypi-server
 }
 
@@ -419,7 +423,7 @@ setup_kind_requirements() {
   create_opendatahub_namespace
   deploy_argo_lite
   deploy_dspo_kind
-  deploy_minio
+  deploy_seaweedfs
   deploy_mariadb
   deploy_pypi_server
   deploy_cert_manager
@@ -440,7 +444,7 @@ setup_openshift_ci_requirements() {
   create_opendatahub_namespace
   deploy_argo_lite
   deploy_dspo
-  deploy_minio
+  deploy_seaweedfs
   deploy_mariadb
   deploy_pypi_server
   wait_for_dspo_dependencies
@@ -455,7 +459,7 @@ setup_openshift_ci_requirements() {
 }
 
 setup_rhoai_requirements() {
-  deploy_minio
+  deploy_seaweedfs
   deploy_mariadb
   deploy_pypi_server
   wait_for_dependencies
