@@ -20,6 +20,8 @@ DSPA_NAMESPACE="test-dspa"
 DSPA_EXTERNAL_NAMESPACE="dspa-ext"
 DSPA_K8S_NAMESPACE="test-k8s-dspa"
 MINIO_NAMESPACE="test-minio"
+DSPA_MLFLOW_NAMESPACE="test-dspa-mlflow"
+RUSTFS_NAMESPACE="test-rustfs"
 MARIADB_NAMESPACE="test-mariadb"
 PYPISERVER_NAMESPACE="test-pypiserver"
 CERT_MANAGER_NAMESPACE="cert-manager"
@@ -139,15 +141,19 @@ deploy_dspo_kind() {
   ( cd $GIT_WORKSPACE && make deploy-kind -e IMG="$IMG" )
 }
 
-deploy_minio() {
+deploy_rustfs() {
+  local fixture_path="${GIT_WORKSPACE}/.github/resources/rustfs"
+  if [ "${1:-}" = "kind" ]; then
+    fixture_path="${fixture_path}/kind"
+  fi
   echo "---------------------------------"
-  echo "Create Minio Namespace"
+  echo "Create RustFS Namespace"
   echo "---------------------------------"
-  kubectl create namespace $MINIO_NAMESPACE
+  kubectl create namespace $RUSTFS_NAMESPACE
   echo "---------------------------------"
-  echo "Deploy Minio"
+  echo "Deploy RustFS S3 fixture"
   echo "---------------------------------"
-  ( cd "${GIT_WORKSPACE}/.github/resources/minio" && kubectl -n $MINIO_NAMESPACE apply -k . )
+  kubectl -n "$RUSTFS_NAMESPACE" apply -k "$fixture_path"
 }
 
 deploy_mariadb() {
@@ -216,10 +222,10 @@ wait_for_dspo_redeploy() {
 
 wait_for_dependencies() {
   echo "---------------------------------"
-  echo "Wait for Dependencies (Minio, Mariadb, Pypi server)"
+  echo "Wait for Dependencies (RustFS, Mariadb, Pypi server)"
   echo "---------------------------------"
   kubectl wait -n $MARIADB_NAMESPACE --timeout=60s --for=condition=Available=true deployment mariadb
-  kubectl wait -n $MINIO_NAMESPACE --timeout=60s --for=condition=Available=true deployment minio
+  kubectl wait -n $RUSTFS_NAMESPACE --timeout=300s --for=condition=Available=true deployment rustfs
   kubectl wait -n $PYPISERVER_NAMESPACE --timeout=60s --for=condition=Available=true deployment pypi-server
 }
 
@@ -253,9 +259,49 @@ create_dspa_k8s_namespace() {
   kubectl create namespace $DSPA_K8S_NAMESPACE
 }
 
-apply_mariadb_minio_secrets_configmaps_external_namespace() {
+create_dspa_mlflow_namespace() {
   echo "---------------------------------"
-  echo "Apply MariaDB and Minio Secrets and Configmaps in the External Namespace"
+  echo "Create DSPA Namespace for MLflow-enabled DSPA"
+  echo "---------------------------------"
+  kubectl get namespace $DSPA_MLFLOW_NAMESPACE >/dev/null 2>&1 || \
+  kubectl create namespace $DSPA_MLFLOW_NAMESPACE
+}
+
+copy_mlflow_ca_bundle() {
+  echo "---------------------------------"
+  echo "Copy MLflow CA bundle (${MLFLOW_CA_BUNDLE_NAME}) to ${DSPA_MLFLOW_NAMESPACE}"
+  echo "---------------------------------"
+  local ca_pem=""
+  local ca_source=""
+  local jsonpath_key=""
+  if kubectl get configmap "${MLFLOW_CA_BUNDLE_NAME}" -n "${MLFLOW_NAMESPACE}" >/dev/null 2>&1; then
+    jsonpath_key="${MLFLOW_CA_BUNDLE_KEY//./\\.}"
+    ca_pem="$(kubectl get configmap "${MLFLOW_CA_BUNDLE_NAME}" -n "${MLFLOW_NAMESPACE}" \
+      -o "jsonpath={.data.${jsonpath_key}}")"
+    ca_source="${MLFLOW_NAMESPACE}/${MLFLOW_CA_BUNDLE_NAME}"
+  elif kubectl get secret "${MLFLOW_TLS_SECRET_NAME}" -n "${MLFLOW_NAMESPACE}" >/dev/null 2>&1; then
+    jsonpath_key="${MLFLOW_TLS_SECRET_CERT_KEY//./\\.}"
+    ca_pem="$(kubectl get secret "${MLFLOW_TLS_SECRET_NAME}" -n "${MLFLOW_NAMESPACE}" \
+      -o "jsonpath={.data.${jsonpath_key}}" | base64 -d)"
+    ca_source="${MLFLOW_NAMESPACE}/${MLFLOW_TLS_SECRET_NAME} (${MLFLOW_TLS_SECRET_CERT_KEY})"
+  else
+    echo "Neither ConfigMap ${MLFLOW_CA_BUNDLE_NAME} nor Secret ${MLFLOW_TLS_SECRET_NAME} found in ${MLFLOW_NAMESPACE}" >&2
+    exit 1
+  fi
+  if [ -z "${ca_pem}" ]; then
+    echo "MLflow CA material from ${ca_source} is empty" >&2
+    exit 1
+  fi
+  echo "Using MLflow CA from ${ca_source}"
+  kubectl create configmap "${MLFLOW_CA_BUNDLE_NAME}" \
+    --from-literal="${MLFLOW_CA_BUNDLE_KEY}=${ca_pem}" \
+    -n "${DSPA_MLFLOW_NAMESPACE}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+}
+
+apply_mariadb_rustfs_secrets_configmaps_external_namespace() {
+  echo "---------------------------------"
+  echo "Apply MariaDB and RustFS Secrets and Configmaps in the External Namespace"
   echo "---------------------------------"
   ( cd "${GIT_WORKSPACE}/.github/resources/external-pre-reqs" && kubectl -n $DSPA_EXTERNAL_NAMESPACE apply -k . )
 }
@@ -295,7 +341,7 @@ run_tests_dspa_external_connections() {
   echo "---------------------------------"
   echo "Run tests for DSPA with External Connections"
   echo "---------------------------------"
-  ( cd $GIT_WORKSPACE && make integrationtest K8SAPISERVERHOST=${K8SAPISERVERHOST} DSPANAMESPACE=${DSPA_EXTERNAL_NAMESPACE} DSPAPATH=${DSPA_EXTERNAL_PATH} ENDPOINT_TYPE=${ENDPOINT_TYPE} MINIONAMESPACE=${MINIO_NAMESPACE} INTTEST_AWF_MANAGEMENT_STATE=${AWF_MANAGEMENT_STATE} INTTEST_SKIP_DEPLOY=${SKIP_DEPLOY} INTTEST_SKIP_CLEANUP=${SKIP_CLEANUP})
+  ( cd $GIT_WORKSPACE && make integrationtest K8SAPISERVERHOST=${K8SAPISERVERHOST} DSPANAMESPACE=${DSPA_EXTERNAL_NAMESPACE} DSPAPATH=${DSPA_EXTERNAL_PATH} ENDPOINT_TYPE=${ENDPOINT_TYPE} OBJECTSTORAGENAMESPACE=${RUSTFS_NAMESPACE} INTTEST_AWF_MANAGEMENT_STATE=${AWF_MANAGEMENT_STATE} INTTEST_SKIP_DEPLOY=${SKIP_DEPLOY} INTTEST_SKIP_CLEANUP=${SKIP_CLEANUP})
 }
 
 run_tests_dspa_k8s() {
@@ -336,7 +382,7 @@ remove_namespace_created_for_rhoai() {
   kubectl delete projects $DSPA_NAMESPACE --now || true
   kubectl delete projects $DSPA_EXTERNAL_NAMESPACE --now || true
   kubectl delete projects $DSPA_K8S_NAMESPACE --now || true
-  kubectl delete projects $MINIO_NAMESPACE --now || true
+  kubectl delete projects $RUSTFS_NAMESPACE --now || true
   kubectl delete projects $MARIADB_NAMESPACE --now || true
   kubectl delete projects $PYPISERVER_NAMESPACE --now || true
 }
@@ -347,7 +393,8 @@ setup_kind_requirements() {
   create_opendatahub_namespace
   deploy_argo_lite
   deploy_dspo_kind
-  deploy_minio
+  enable_aipipelines_module
+  deploy_rustfs kind
   deploy_mariadb
   deploy_pypi_server
   wait_for_dspo_dependencies
@@ -356,7 +403,9 @@ setup_kind_requirements() {
   create_dspa_namespace
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
-  apply_mariadb_minio_secrets_configmaps_external_namespace
+  create_dspa_mlflow_namespace
+  apply_mariadb_rustfs_secrets_configmaps_external_namespace
+  configure_kind_service_ca "$DSPA_EXTERNAL_NAMESPACE" "dspa-ext"
   apply_pip_server_configmap
 }
 
@@ -365,7 +414,8 @@ setup_openshift_ci_requirements() {
   create_opendatahub_namespace
   deploy_argo_lite
   deploy_dspo
-  deploy_minio
+  enable_aipipelines_module
+  deploy_rustfs
   deploy_mariadb
   deploy_pypi_server
   wait_for_dspo_dependencies
@@ -374,12 +424,13 @@ setup_openshift_ci_requirements() {
   create_dspa_namespace
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
-  apply_mariadb_minio_secrets_configmaps_external_namespace
+  create_dspa_mlflow_namespace
+  apply_mariadb_rustfs_secrets_configmaps_external_namespace
   apply_pip_server_configmap
 }
 
 setup_rhoai_requirements() {
-  deploy_minio
+  deploy_rustfs
   deploy_mariadb
   deploy_pypi_server
   wait_for_dependencies
@@ -387,7 +438,8 @@ setup_rhoai_requirements() {
   create_dspa_namespace
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
-  apply_mariadb_minio_secrets_configmaps_external_namespace
+  create_dspa_mlflow_namespace
+  apply_mariadb_rustfs_secrets_configmaps_external_namespace
   apply_pip_server_configmap
 }
 

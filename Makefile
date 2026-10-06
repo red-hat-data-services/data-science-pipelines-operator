@@ -84,7 +84,9 @@ K8SAPISERVERHOST ?= http://localhost:6443
 DSPANAMESPACE ?= default
 DSPAPATH ?= resources/dspa-lite.yaml
 ENDPOINT_TYPE ?= service
+# Legacy alias for external object storage.
 MINIONAMESPACE ?= default
+OBJECTSTORAGENAMESPACE ?= $(MINIONAMESPACE)
 
 # Integration Testing EnvVars
 INTTEST_SKIP_DEPLOY ?= false
@@ -158,7 +160,42 @@ functest: manifests generate fmt vet envtest ## Run tests.
 .PHONY: integrationtest
 integrationtest: ## Run integration tests
 	cd tests && \
-	go test ./... --tags=test_integration -v -kubeconfig=${KUBECONFIGPATH} -k8sApiServerHost=${K8SAPISERVERHOST} -DSPANamespace=${DSPANAMESPACE} -DSPAPath=${DSPAPATH} -endpointType=${ENDPOINT_TYPE} -MinioNamespace=${MINIONAMESPACE} -ArgoWorkflowsControllersManagementState=$(INTTEST_AWF_MANAGEMENT_STATE) -skipDeploy=$(INTTEST_SKIP_DEPLOY) -skipCleanup=$(INTTEST_SKIP_CLEANUP)
+	go test . --tags=test_integration -v -kubeconfig=${KUBECONFIGPATH} -k8sApiServerHost=${K8SAPISERVERHOST} -DSPANamespace=${DSPANAMESPACE} -DSPAPath=${DSPAPATH} -endpointType=${ENDPOINT_TYPE} -ObjectStorageNamespace=${OBJECTSTORAGENAMESPACE} -ArgoWorkflowsControllersManagementState=$(INTTEST_AWF_MANAGEMENT_STATE) -skipDeploy=$(INTTEST_SKIP_DEPLOY) -skipCleanup=$(INTTEST_SKIP_CLEANUP)
+
+.PHONY: aipipelines-e2e-test
+aipipelines-e2e-test: ## Test module/operand lifecycle on a dedicated cluster with a test-labeled module fixture.
+	go test ./tests/aipipelines -tags=test_integration -run '^TestAIPipelinesLifecycle$$' -count=1 -v -timeout=45m
+
+##@ Chaos Testing
+
+CHAOS_RESOLVED_DIR ?= $(shell pwd)/tmp/chaos-resolved
+
+export DSPA_NAME ?= test-dspa
+export DSPA_NAMESPACE ?= test-dspa
+export OPERATOR_NAMESPACE ?= opendatahub
+export OPERATOR_DEPLOYMENT_NAME ?= data-science-pipelines-operator-controller-manager
+
+.PHONY: chaos-resolve
+chaos-resolve: ## Resolve chaos YAML templates with environment variables.
+	@rm -rf $(CHAOS_RESOLVED_DIR)
+	@for f in $$(find chaos/ -name '*.yaml' -type f); do \
+		resolved="$(CHAOS_RESOLVED_DIR)/$${f#chaos/}"; \
+		mkdir -p "$$(dirname "$$resolved")"; \
+		envsubst '$$DSPA_NAME $$DSPA_NAMESPACE $$OPERATOR_NAMESPACE $$OPERATOR_DEPLOYMENT_NAME' < "$$f" > "$$resolved"; \
+	done
+	@echo "Resolved chaos YAMLs to $(CHAOS_RESOLVED_DIR) with DSPA_NAME=$(DSPA_NAME) DSPA_NAMESPACE=$(DSPA_NAMESPACE) OPERATOR_NAMESPACE=$(OPERATOR_NAMESPACE)"
+
+.PHONY: chaos-validate
+chaos-validate: chaos-resolve ## Validate chaos knowledge models and experiment YAMLs (offline, no cluster needed).
+	go tool operator-chaos validate --knowledge $(CHAOS_RESOLVED_DIR)/knowledge/dspo-default.yaml
+	@for f in $$(find $(CHAOS_RESOLVED_DIR)/experiments -name '*.yaml' -type f); do \
+		echo "Validating $$f..."; \
+		go tool operator-chaos validate "$$f" || exit 1; \
+	done
+
+.PHONY: test-chaos
+test-chaos: envtest ## Run SDK chaos tests (envtest, no cluster needed).
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./controllers/ -v --tags=test_chaos -count=1
 
 ##@ Build
 
@@ -168,7 +205,7 @@ build: generate fmt vet ## Build manager binary.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./main.go
+	go run .
 
 .PHONY: podman-build
 podman-build: ## Build container image with the manager.
