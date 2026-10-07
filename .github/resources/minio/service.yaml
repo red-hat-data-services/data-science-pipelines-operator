@@ -1,13 +1,16 @@
 kind: Service
 apiVersion: v1
 metadata:
-  # Keep the endpoint used by the external-object-store DSPA fixtures.
   name: minio
 spec:
   ports:
     - name: https
       protocol: TCP
       port: 9000
-      targetPort: 8334
+      targetPort: 9000
+    - name: console
+      protocol: TCP
+      port: 9001
+      targetPort: 9001
   selector:
-    app: seaweedfs
+    app: minio

@@ -103,7 +103,7 @@ configure namespaces, build and deploy images, and execute integration tests.
    The script requires and verifies environment variables such as `GIT_WORKSPACE`, `REGISTRY_ADDRESS`, and `K8SAPISERVERHOST`. These variables define the workspace, registry for container images, and K8s API server address.
 
 2. **Deployment Functions**:  
-   Functions like `deploy_dspo`, `deploy_seaweedfs`, and `deploy_mariadb` deploy the operator and its test dependencies (SeaweedFS, MariaDB, and PyPI server). SeaweedFS exposes TLS S3 storage through `minio.test-minio.svc.cluster.local:9000` for compatibility with the external-object-store fixtures.
+   Functions like `deploy_dspo`, `deploy_minio`, and `deploy_mariadb` handle deploying necessary components (e.g., MinIO, MariaDB, PyPI server) to the cluster.
 
 3. **Namespace Configuration**:  
    Functions like `create_opendatahub_namespace` and `create_dspa_namespace` create and configure Kubernetes namespaces required for DSPO and other dependencies.
