@@ -459,7 +459,6 @@ setup_kind_requirements() {
   deploy_argo_lite
   deploy_dspo_kind
   deploy_rustfs kind
-  enable_aipipelines_module
   deploy_rustfs kind
   deploy_mariadb
   deploy_pypi_server
@@ -483,7 +482,6 @@ setup_openshift_ci_requirements() {
   create_opendatahub_namespace
   deploy_argo_lite
   deploy_dspo
-  enable_aipipelines_module
   deploy_rustfs
   deploy_rustfs
   deploy_mariadb
