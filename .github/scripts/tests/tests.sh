@@ -20,7 +20,6 @@ DSPA_NAMESPACE="test-dspa"
 DSPA_EXTERNAL_NAMESPACE="dspa-ext"
 DSPA_K8S_NAMESPACE="test-k8s-dspa"
 MINIO_NAMESPACE="test-minio"
-DSPA_MLFLOW_NAMESPACE="test-dspa-mlflow"
 RUSTFS_NAMESPACE="test-rustfs"
 MARIADB_NAMESPACE="test-mariadb"
 PYPISERVER_NAMESPACE="test-pypiserver"
@@ -259,46 +258,6 @@ create_dspa_k8s_namespace() {
   kubectl create namespace $DSPA_K8S_NAMESPACE
 }
 
-create_dspa_mlflow_namespace() {
-  echo "---------------------------------"
-  echo "Create DSPA Namespace for MLflow-enabled DSPA"
-  echo "---------------------------------"
-  kubectl get namespace $DSPA_MLFLOW_NAMESPACE >/dev/null 2>&1 || \
-  kubectl create namespace $DSPA_MLFLOW_NAMESPACE
-}
-
-copy_mlflow_ca_bundle() {
-  echo "---------------------------------"
-  echo "Copy MLflow CA bundle (${MLFLOW_CA_BUNDLE_NAME}) to ${DSPA_MLFLOW_NAMESPACE}"
-  echo "---------------------------------"
-  local ca_pem=""
-  local ca_source=""
-  local jsonpath_key=""
-  if kubectl get configmap "${MLFLOW_CA_BUNDLE_NAME}" -n "${MLFLOW_NAMESPACE}" >/dev/null 2>&1; then
-    jsonpath_key="${MLFLOW_CA_BUNDLE_KEY//./\\.}"
-    ca_pem="$(kubectl get configmap "${MLFLOW_CA_BUNDLE_NAME}" -n "${MLFLOW_NAMESPACE}" \
-      -o "jsonpath={.data.${jsonpath_key}}")"
-    ca_source="${MLFLOW_NAMESPACE}/${MLFLOW_CA_BUNDLE_NAME}"
-  elif kubectl get secret "${MLFLOW_TLS_SECRET_NAME}" -n "${MLFLOW_NAMESPACE}" >/dev/null 2>&1; then
-    jsonpath_key="${MLFLOW_TLS_SECRET_CERT_KEY//./\\.}"
-    ca_pem="$(kubectl get secret "${MLFLOW_TLS_SECRET_NAME}" -n "${MLFLOW_NAMESPACE}" \
-      -o "jsonpath={.data.${jsonpath_key}}" | base64 -d)"
-    ca_source="${MLFLOW_NAMESPACE}/${MLFLOW_TLS_SECRET_NAME} (${MLFLOW_TLS_SECRET_CERT_KEY})"
-  else
-    echo "Neither ConfigMap ${MLFLOW_CA_BUNDLE_NAME} nor Secret ${MLFLOW_TLS_SECRET_NAME} found in ${MLFLOW_NAMESPACE}" >&2
-    exit 1
-  fi
-  if [ -z "${ca_pem}" ]; then
-    echo "MLflow CA material from ${ca_source} is empty" >&2
-    exit 1
-  fi
-  echo "Using MLflow CA from ${ca_source}"
-  kubectl create configmap "${MLFLOW_CA_BUNDLE_NAME}" \
-    --from-literal="${MLFLOW_CA_BUNDLE_KEY}=${ca_pem}" \
-    -n "${DSPA_MLFLOW_NAMESPACE}" \
-    --dry-run=client -o yaml | kubectl apply -f -
-}
-
 apply_mariadb_rustfs_secrets_configmaps_external_namespace() {
   echo "---------------------------------"
   echo "Apply MariaDB and RustFS Secrets and Configmaps in the External Namespace"
@@ -393,7 +352,6 @@ setup_kind_requirements() {
   create_opendatahub_namespace
   deploy_argo_lite
   deploy_dspo_kind
-  enable_aipipelines_module
   deploy_rustfs kind
   deploy_mariadb
   deploy_pypi_server
@@ -403,9 +361,7 @@ setup_kind_requirements() {
   create_dspa_namespace
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
-  create_dspa_mlflow_namespace
   apply_mariadb_rustfs_secrets_configmaps_external_namespace
-  configure_kind_service_ca "$DSPA_EXTERNAL_NAMESPACE" "dspa-ext"
   apply_pip_server_configmap
 }
 
@@ -414,7 +370,6 @@ setup_openshift_ci_requirements() {
   create_opendatahub_namespace
   deploy_argo_lite
   deploy_dspo
-  enable_aipipelines_module
   deploy_rustfs
   deploy_mariadb
   deploy_pypi_server
