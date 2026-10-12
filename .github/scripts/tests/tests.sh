@@ -435,6 +435,7 @@ setup_kind_requirements() {
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
   apply_mariadb_rustfs_secrets_configmaps_external_namespace
+  apply_mariadb_rustfs_secrets_configmaps_external_namespace
   configure_kind_service_ca "$DSPA_EXTERNAL_NAMESPACE" "dspa-ext"
   apply_pip_server_configmap
 }
@@ -468,6 +469,7 @@ setup_rhoai_requirements() {
   create_dspa_namespace
   create_namespace_dspa_external_connections
   create_dspa_k8s_namespace
+  create_dspa_mlflow_namespace
   apply_mariadb_rustfs_secrets_configmaps_external_namespace
   apply_pip_server_configmap
 }
