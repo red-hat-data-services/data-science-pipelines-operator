@@ -1370,6 +1370,11 @@ func TestReconcileAPIServer_ServiceAccountAnnotations(t *testing.T) {
 			expectedAnnotations:       nil,
 		},
 		{
+			name:                      "empty annotations configured",
+			serviceAccountAnnotations: nil,
+			expectedAnnotations:       nil,
+		},
+		{
 			name: "IRSA annotation configured",
 			serviceAccountAnnotations: map[string]string{
 				"eks.amazonaws.com/role-arn": "arn:aws:iam::123456789012:role/my-role",
