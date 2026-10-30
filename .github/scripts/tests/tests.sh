@@ -40,6 +40,29 @@ ENDPOINT_TYPE="service"
 DSPO_IMAGE_REF="${DSPO_IMAGE_REF:-}"
 CONTAINER_CLI="${CONTAINER_CLI:-docker}"
 RUN_PKG_UPLOADER_IN_CONTAINER="${RUN_PKG_UPLOADER_IN_CONTAINER:-true}"
+DSP_SOURCE_DIR="${DSP_SOURCE_DIR:-}"
+ARGO_SOURCE_DIR="${ARGO_SOURCE_DIR:-}"
+KIND_IMAGE_TAG="${KIND_IMAGE_TAG:-kind-ci}"
+BUILD_ARGO_IMAGES="${BUILD_ARGO_IMAGES:-true}"
+TESTS_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+prepare_kind_params_env() {
+  local kind_params="${CONFIG_DIR}/overlays/kind-tests/params.env"
+  local tag="${KIND_IMAGE_TAG}"
+
+  cp "${CONFIG_DIR}/base/params.env" "${kind_params}"
+
+  sed -i "s|^IMAGES_APISERVER=.*|IMAGES_APISERVER=${REGISTRY_ADDRESS}/apiserver:${tag}|" "${kind_params}"
+  sed -i "s|^IMAGES_PERSISTENCEAGENT=.*|IMAGES_PERSISTENCEAGENT=${REGISTRY_ADDRESS}/persistenceagent:${tag}|" "${kind_params}"
+  sed -i "s|^IMAGES_SCHEDULEDWORKFLOW=.*|IMAGES_SCHEDULEDWORKFLOW=${REGISTRY_ADDRESS}/scheduledworkflow:${tag}|" "${kind_params}"
+  sed -i "s|^IMAGES_LAUNCHER=.*|IMAGES_LAUNCHER=${REGISTRY_ADDRESS}/launcher:${tag}|" "${kind_params}"
+  sed -i "s|^IMAGES_DRIVER=.*|IMAGES_DRIVER=${REGISTRY_ADDRESS}/driver:${tag}|" "${kind_params}"
+
+  if [ "$BUILD_ARGO_IMAGES" = "true" ]; then
+    sed -i "s|^IMAGES_ARGO_WORKFLOWCONTROLLER=.*|IMAGES_ARGO_WORKFLOWCONTROLLER=${REGISTRY_ADDRESS}/workflow-controller:${tag}|" "${kind_params}"
+    sed -i "s|^IMAGES_ARGO_EXEC=.*|IMAGES_ARGO_EXEC=${REGISTRY_ADDRESS}/argoexec:${tag}|" "${kind_params}"
+  fi
+}
 
 get_dspo_image() {
   if [ ! -z "$DSPO_IMAGE_REF" ]; then
@@ -383,8 +406,15 @@ remove_namespace_created_for_rhoai() {
 }
 
 setup_kind_requirements() {
+  if [ "$DEPLOY_EXTERNAL_ARGO" = true ]; then
+    BUILD_ARGO_IMAGES=false
+  fi
   apply_crd
   build_image
+  # shellcheck source=/dev/null
+  . "${TESTS_SCRIPT_DIR}/build_kind_images.sh"
+  build_kind_component_images
+  prepare_kind_params_env
   create_opendatahub_namespace
   deploy_argo_lite
   deploy_dspo_kind
