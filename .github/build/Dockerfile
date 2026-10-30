@@ -1,4 +1,4 @@
-ARG CI_BASE=registry.access.redhat.com/ubi8/go-toolset:1.25
+ARG CI_BASE=registry.access.redhat.com/ubi8/go-toolset:1.26.10@sha256:d2393fb0b88b6b294a39167ed4662ed6309060ffa34c1834328656472a91b084
 
 FROM ${CI_BASE} as stage1
 
