@@ -48,7 +48,7 @@ env:
 jobs:
   prereqs:
     name: Prerequisites
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       prereqs_successful: ${{ steps.vars.outputs.prereqs_successful }}
     steps:
@@ -72,7 +72,7 @@ jobs:
 
   create_branches:
     name: Create Release Branches
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: prereqs
     if: needs.prereqs.outputs.prereqs_successful == 'true'
     steps:
@@ -98,7 +98,7 @@ jobs:
   # More Context: https://github.com/orgs/community/discussions/26671
   get-env-vars:
     name: Get Re-Usable Env Vars
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       MINOR_RELEASE_BRANCH: ${{ env.MINOR_RELEASE_BRANCH }}
       MINOR_RELEASE_TAG: ${{ env.MINOR_RELEASE_TAG }}
@@ -127,7 +127,7 @@ jobs:
 
   generate_pr:
     name: Generate Release PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build_images
     steps:
       - uses: actions/checkout@v3

@@ -13,7 +13,7 @@ env:
 jobs:
   fetch-data:
     name: Fetch workflow payload
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: >
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success'
@@ -79,7 +79,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: fetch-data
     concurrency:
       group: ${{ github.workflow }}-build-pr-image-${{ needs.fetch-data.outputs.pr_number }}
@@ -156,7 +156,7 @@ jobs:
 
   clean-pr-images:
     if: needs.fetch-data.outputs.pr_state == 'closed'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: fetch-data
     concurrency:
       group: ${{ github.workflow }}-clean-pr-images-${{ needs.fetch-data.outputs.pr_number }}

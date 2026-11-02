@@ -101,7 +101,7 @@ env:
   OVERWRITE_IMAGES: ${{ inputs.overwrite_imgs }}
 jobs:
   DSPO-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -117,7 +117,7 @@ jobs:
           OVERWRITE: ${{ env.OVERWRITE_IMAGES }}
 
   SERVER-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -133,7 +133,7 @@ jobs:
           OVERWRITE: ${{ env.OVERWRITE_IMAGES }}
 
   UI-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -149,7 +149,7 @@ jobs:
           OVERWRITE: ${{ env.OVERWRITE_IMAGES }}
 
   PA-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -165,7 +165,7 @@ jobs:
           OVERWRITE: ${{ env.OVERWRITE_IMAGES }}
 
   SWF-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -181,7 +181,7 @@ jobs:
           OVERWRITE: ${{ env.OVERWRITE_IMAGES }}
 
   DRIVER-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -197,7 +197,7 @@ jobs:
           OVERWRITE: ${{ env.OVERWRITE_IMAGES }}
 
   LAUNCHER-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -213,7 +213,7 @@ jobs:
           OVERWRITE: ${{ env.OVERWRITE_IMAGES }}
 
   RUNTIME-GENERIC-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04v
     permissions:
       contents: read
     steps:

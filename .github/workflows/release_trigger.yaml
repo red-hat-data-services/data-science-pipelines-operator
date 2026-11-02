@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   upload-data:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: contains(github.event.pull_request.labels.*.name, 'release-automation') && github.event.pull_request.merged
     steps:
       - uses: actions/checkout@v3

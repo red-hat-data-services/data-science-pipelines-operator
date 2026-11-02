@@ -3,7 +3,7 @@ on:
   pull_request:
 jobs:
   precommit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       PRE_COMMIT_HOME: ~/.cache/pre-commit
     steps:
