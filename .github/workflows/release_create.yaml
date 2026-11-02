@@ -12,7 +12,7 @@ env:
 jobs:
   fetch-data:
     name: Fetch workflow payload
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: >
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success'
@@ -52,7 +52,7 @@ jobs:
 
   validate_pr:
     name: Validate PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: fetch-data
     steps:
       - name: checkout
@@ -68,7 +68,7 @@ jobs:
 
   create_dspo_tag_release:
     name: Create DSPO Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - fetch-data
       - validate_pr
@@ -90,7 +90,7 @@ jobs:
 
   create_dsp_tag_release:
     name: Create DSP Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - fetch-data
       - validate_pr
@@ -114,7 +114,7 @@ jobs:
 
   notify_pr:
     name: Report Feedback
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - validate_pr
       - fetch-data
