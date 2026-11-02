@@ -1,7 +1,7 @@
 # Build the manager binary
 ARG BUILDER_ARCH=multiarch
-FROM registry.access.redhat.com/ubi9/go-toolset:1.26.3@sha256:45bd06d392349dfdb09073514cfebcc5082db33301347b51dcae8e5516a89126 AS go-toolset-multiarch
-FROM registry.access.redhat.com/ubi9/go-toolset:1.26.3@sha256:3880436381044c6d89c2311f2a7dc8d64224668bf84b43810982b5a9ddd851d0 AS go-toolset-arm64
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10@sha256:5ee38c1f5fc2dfa5c5257928912cc26857f4186c07d836271a2d748dc79b083a AS go-toolset-multiarch
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10@sha256:c073288dc64060205635575a473f37792cec0fed03c8dbcb5d9ed9415cb0f18e AS go-toolset-arm64
 FROM go-toolset-${BUILDER_ARCH} AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
