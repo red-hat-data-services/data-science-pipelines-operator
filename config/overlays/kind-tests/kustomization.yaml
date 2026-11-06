@@ -3,6 +3,11 @@ kind: Kustomization
 namespace: opendatahub
 resources:
   - ../../base
+configMapGenerator:
+  - name: dspo-parameters
+    behavior: merge
+    envs:
+      - params.env
 patchesStrategicMerge:
   - img_patch.yaml
   - res_patch.yaml
