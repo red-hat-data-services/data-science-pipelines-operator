@@ -548,6 +548,24 @@ podman build . -f backend/Dockerfile -t quay.io/your_repo/dsp-apiserver:sometag
 > make podman-build BUILDER_ARCH=arm64 TARGETARCH=arm64 IMG=quay.io/your_repo/data-science-pipelines-operator:tag
 > ```
 
+**To deploy DSPO on Kind:**
+
+Install cert-manager and wait for its deployments to become available before running
+`make deploy-kind OPERATOR_NS=<namespace> IMG=<operator-image>`.
+The `config/overlays/kind-tests` overlay includes the webhook Issuer and Certificate
+and derives the certificate DNS names from `OPERATOR_NS`. Both webhook configurations
+use the operator pod's namespace for CA injection.
+
+Use the same namespace for integration tests:
+`make integrationtest OPERATOR_NS=<namespace> INTTEST_VERIFY_KIND_WEBHOOK_TLS=true`
+(with the existing kubeconfig and DSPA test options). The Kind TLS check runs for
+Kubernetes pipeline storage and verifies the live webhook annotations and injected
+CA bundles. Other deployment modes leave this Kind-specific check disabled.
+The `.github/scripts/tests/tests.sh --kind` harness accepts `OPERATOR_NS` as an
+environment variable, defaults to `opendatahub`, and forwards it to deployment,
+readiness waits, cleanup, and integration tests. It enables the Kind TLS check
+automatically for the Kubernetes-store suite.
+
 **To run the tests:**
 
 Execute `make test` or `make unittest` or `make functest` based on the level of testing as mentioned below:
