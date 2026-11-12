@@ -29,6 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// TestDSPADeployment verifies the expected pod count and deployment availability
+// for the configured storage, database, and Argo management settings.
 func (suite *IntegrationTestSuite) TestDSPADeployment() {
 	podCount := 8
 	if suite.DSPA.Spec.ObjectStorage.ExternalStorage != nil {
@@ -103,7 +105,8 @@ func (suite *IntegrationTestSuite) TestDSPADeployment() {
 
 		for _, deployment := range deployments {
 			t.Run(fmt.Sprintf("should have a ready %s deployment", deployment), func(t *testing.T) {
-				testUtil.TestForSuccessfulDeployment(t, suite.Ctx, suite.DSPANamespace, deployment, suite.Clientmgr.k8sClient, DeployTimeout)
+				err := testUtil.WaitForDeploymentAvailable(suite.Ctx, suite.Clientmgr.k8sClient, suite.DSPANamespace, deployment, DeployTimeout, PollInterval)
+				require.NoError(t, err)
 			})
 		}
 		for _, deployment := range skippedDeployments {
@@ -164,13 +167,12 @@ func (suite *IntegrationTestSuite) TestDSPADeploymentWithK8sNativeApi() {
 	suite.T().Run("should verify webhook pod is running in DSPO namespace", func(t *testing.T) {
 		timeout := 120 * time.Second
 		interval := 2 * time.Second
-		dspoNamespace := "opendatahub"
 		webhookName := "ds-pipelines-webhook"
 
 		require.Eventually(t, func() bool {
 			podList := &corev1.PodList{}
 			err := suite.Clientmgr.k8sClient.List(suite.Ctx, podList,
-				client.InNamespace(dspoNamespace),
+				client.InNamespace(suite.OperatorNamespace),
 				client.MatchingLabels{
 					"app": webhookName,
 				},

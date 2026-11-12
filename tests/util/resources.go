@@ -23,12 +23,13 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 
 	mf "github.com/manifestival/manifestival"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -124,32 +125,34 @@ func DeleteDSPA(t *testing.T, ctx context.Context, client client.Client, dspaNam
 	})
 }
 
-func TestForSuccessfulDeployment(t *testing.T, ctx context.Context, namespace, deploymentName string, client client.Client, timeout time.Duration) {
-	deployment := &appsv1.Deployment{}
-	nsn := types.NamespacedName{
-		Name:      deploymentName,
-		Namespace: namespace,
-	}
-	pollCtx, cancel := context.WithTimeout(ctx, timeout)
+// WaitForDeploymentAvailable waits for the deployment's Available condition to become true.
+func WaitForDeploymentAvailable(ctx context.Context, kubernetesClient client.Client, namespace, deploymentName string, timeout, interval time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	// The DSPA Ready condition can be observed before every Deployment's
-	// availability status has caught up, so poll for it instead of requiring
-	// it on a single read.
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		if !assert.NoError(c, client.Get(pollCtx, nsn, deployment)) {
-			return
+	namespacedName := types.NamespacedName{Name: deploymentName, Namespace: namespace}
+	lastObservation := "deployment not yet fetched"
+	err := WaitFor(ctx, timeout, interval, func() (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
-		deploymentAvailable := false
-		for _, condition := range deployment.Status.Conditions {
-			if condition.Reason == "MinimumReplicasAvailable" && condition.Type == appsv1.DeploymentAvailable {
-				deploymentAvailable = true
-				break
+		deployment := &appsv1.Deployment{}
+		if err := kubernetesClient.Get(ctx, namespacedName, deployment); err != nil {
+			if apierrs.IsNotFound(err) {
+				lastObservation = err.Error()
+				return false, nil
 			}
+			return false, err
 		}
-		assert.True(c, deploymentAvailable, "deployment %s/%s never reported MinimumReplicasAvailable", namespace, deploymentName)
-	}, timeout, 5*time.Second)
+		lastObservation = fmt.Sprintf("conditions: %+v", deployment.Status.Conditions)
+		return isDeploymentAvailable(deployment), nil
+	})
+	if err != nil {
+		return fmt.Errorf("waiting for deployment %s to become available (last observation: %s): %w", namespacedName, lastObservation, err)
+	}
+	return nil
 }
 
+// TestForDeploymentAbsence accepts a missing or unavailable deployment.
 func TestForDeploymentAbsence(t *testing.T, ctx context.Context, namespace, deploymentName string, client client.Client) {
 	deployment := &appsv1.Deployment{}
 	nsn := types.NamespacedName{
@@ -163,14 +166,7 @@ func TestForDeploymentAbsence(t *testing.T, ctx context.Context, namespace, depl
 		}
 		return
 	}
-	deploymentAvailable := false
-	for _, condition := range deployment.Status.Conditions {
-		if condition.Reason == "MinimumReplicasAvailable" && condition.Type == appsv1.DeploymentAvailable {
-			deploymentAvailable = true
-			break
-		}
-	}
-	require.False(t, deploymentAvailable)
+	require.False(t, isDeploymentAvailable(deployment))
 }
 
 func GetDSPAFromPath(t *testing.T, opts mf.Option, path string) *v1.DataSciencePipelinesApplication {
@@ -183,20 +179,25 @@ func GetDSPAFromPath(t *testing.T, opts mf.Option, path string) *v1.DataScienceP
 	return dspa
 }
 
-// WaitFor is a helper function
-func WaitFor(ctx context.Context, timeout, interval time.Duration, conditionFunc func() (bool, error)) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		done, err := conditionFunc()
-		if err != nil {
-			return err
+// isDeploymentAvailable uses the condition status independently of its reason.
+func isDeploymentAvailable(deployment *appsv1.Deployment) bool {
+	for _, condition := range deployment.Status.Conditions {
+		if condition.Type == appsv1.DeploymentAvailable && condition.Status == corev1.ConditionTrue {
+			return true
 		}
-		if done {
-			return nil
-		}
-		time.Sleep(interval)
 	}
-	return fmt.Errorf("timed out waiting for condition")
+	return false
+}
+
+// WaitFor checks immediately, then polls until success, an error, cancellation,
+// or the timeout. Cancellation and deadlines also interrupt polling delays.
+func WaitFor(ctx context.Context, timeout, interval time.Duration, conditionFunc func() (bool, error)) error {
+	return wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		return conditionFunc()
+	})
 }
 
 func PrintConditions(ctx context.Context, dspa *v1.DataSciencePipelinesApplication, namespace string, client client.Client) string {
