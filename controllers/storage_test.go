@@ -590,7 +590,7 @@ func TestObjectStorageHealthCheck_SkippedWhenCredentialsFromEnv(t *testing.T) {
 			reason:                "explicitly disabled via disableHealthCheck",
 		},
 		{
-			name:                  "health check skipped when credentialsMode nil (backwards compat)",
+			name:                  "health check is not skipped when credentialsMode nil (backwards compat)",
 			credentialsMode:       nil,
 			disableHealthCheck:    false,
 			expectHealthCheckSkip: false,
