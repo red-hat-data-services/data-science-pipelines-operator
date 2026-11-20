@@ -7,25 +7,161 @@ metadata:
     app: {{.APIServerDefaultResourceName}}
     component: data-science-pipelines
 rules:
-{{- if and .ObjectStorageConnection.CredentialsSecret .ObjectStorageConnection.CredentialsSecret.SecretName }}
-  - apiGroups: [""]
-    resources: ["secrets"]
-    resourceNames:
-      - {{ printf "%q" .ObjectStorageConnection.CredentialsSecret.SecretName }}
-    verbs: ["get"]
-{{- end }}
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    resourceNames: ["kfp-launcher"]
-    verbs: ["get"]
-  # The driver reads its own Pod metadata to publish Kubernetes task results.
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get"]
-  # The Kubernetes platform driver supports pipeline steps that create and delete PVCs.
-  - apiGroups: [""]
-    resources: ["persistentvolumeclaims"]
-    verbs: ["create", "get", "delete"]
-  - apiGroups: ["argoproj.io"]
-    resources: ["workflowtaskresults"]
-    verbs: ["create", "patch"]
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumes
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - snapshot.storage.k8s.io
+    resources:
+      - volumesnapshots
+    verbs:
+      - create
+      - delete
+      - get
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflowtaskresults
+    verbs:
+      - create
+      - patch
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflows
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/log
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+      - apps
+      - extensions
+    resources:
+      - deployments
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - scheduledworkflows
+      - scheduledworkflows/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ray.io
+    resources:
+      - rayclusters
+      - rayjobs
+      - rayservices
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - delete
+  - apiGroups:
+      - workload.codeflare.dev
+    resources:
+      - appwrappers
+      - appwrappers/finalizers
+      - appwrappers/status
+    verbs:
+      - create
+      - delete
+      - deletecollection
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - route.openshift.io
+    resources:
+      - routes
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - serving.kserve.io
+    resources:
+      - inferenceservices
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - delete

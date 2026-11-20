@@ -1,0 +1,110 @@
+//go:build test_all || test_unit
+
+/*
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controllers
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	dspav1 "github.com/opendatahub-io/data-science-pipelines-operator/api/v1"
+	"github.com/stretchr/testify/require"
+	admissionv1 "k8s.io/api/admission/v1"
+	authn "k8s.io/api/authentication/v1"
+	authz "k8s.io/api/authorization/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+)
+
+func TestWorkflowAdmission(t *testing.T) {
+	const (
+		direct         = "developer"
+		api            = "system:serviceaccount:team:ds-pipeline-example"
+		scheduler      = "system:serviceaccount:team:ds-pipeline-scheduledworkflow-example"
+		controller     = "system:serviceaccount:team:ds-pipeline-workflow-controller-example"
+		runner         = `{"spec":{"serviceAccountName":"pipeline-runner-example"}}`
+		defaultAccount = `{"spec":{"serviceAccountName":"default"}}`
+		schedule       = `{"spec":{"enabled":true}}`
+	)
+	scheme := runtime.NewScheme()
+	require.NoError(t, dspav1.AddToScheme(scheme))
+	app := &dspav1.DataSciencePipelinesApplication{ObjectMeta: metav1.ObjectMeta{Name: "example", Namespace: "team"}}
+	argo := metav1.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "workflows"}
+	schedules := metav1.GroupVersionResource{Group: "kubeflow.org", Version: "v1beta1", Resource: "scheduledworkflows"}
+
+	tests := []struct {
+		name        string
+		user        string
+		resource    metav1.GroupVersionResource
+		spec        string
+		previous    string
+		grant       bool
+		reviewError bool
+		allowed     bool
+	}{
+		{name: "default workflow", user: direct, resource: argo, spec: defaultAccount, allowed: true},
+		{name: "direct runner requires use", user: direct, resource: argo, spec: runner},
+		{name: "direct runner granted", user: direct, resource: argo, spec: runner, grant: true, allowed: true},
+		{name: "cannot update to runner", user: direct, resource: argo, spec: runner, previous: defaultAccount},
+		{name: "cannot update protected workflow to default", user: direct, resource: argo, spec: defaultAccount, previous: runner},
+		{name: "review error fails closed", user: direct, resource: argo, spec: runner, reviewError: true},
+		{name: "managed API submit", user: api, resource: argo, spec: runner, allowed: true},
+		{name: "managed scheduler submit", user: scheduler, resource: argo, spec: runner, allowed: true},
+		{name: "controller cannot submit a new named run", user: controller, resource: argo, spec: runner},
+		{name: "controller can write status", user: controller, resource: argo, spec: runner, previous: runner, allowed: true},
+		{name: "direct schedule denied", user: direct, resource: schedules, spec: schedule},
+		{name: "managed API schedule", user: api, resource: schedules, spec: schedule, allowed: true},
+		{name: "managed scheduler can write status", user: scheduler, resource: schedules, spec: schedule, previous: schedule, allowed: true},
+		{name: "scheduler cannot change executable schedule", user: scheduler, resource: schedules, spec: schedule, previous: `{"spec":{}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(app.DeepCopy()).WithInterceptorFuncs(interceptor.Funcs{
+				Create: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.CreateOption) error {
+					review := obj.(*authz.SubjectAccessReview)
+					require.Equal(t, test.user, review.Spec.User)
+					require.Equal(t, []string{"example-group"}, review.Spec.Groups)
+					require.Equal(t, "team", review.Spec.ResourceAttributes.Namespace)
+					require.Equal(t, "serviceaccounts", review.Spec.ResourceAttributes.Resource)
+					require.Equal(t, "pipeline-runner-example", review.Spec.ResourceAttributes.Name)
+					require.Equal(t, "use", review.Spec.ResourceAttributes.Verb)
+					if test.reviewError {
+						return errors.New("review unavailable")
+					}
+					review.Status.Allowed = test.grant
+					return nil
+				},
+			}).Build()
+			request := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Namespace: "team", Resource: test.resource, Operation: admissionv1.Create,
+				Object:   runtime.RawExtension{Raw: []byte(test.spec)},
+				UserInfo: authn.UserInfo{Username: test.user, Groups: []string{"example-group"}},
+			}}
+			if test.previous != "" {
+				request.Operation = admissionv1.Update
+				request.OldObject.Raw = []byte(test.previous)
+			}
+			response := (WorkflowAdmission{Reader: kube, Client: kube}).Handle(context.Background(), request)
+			require.Equal(t, test.allowed, response.Allowed, "%+v", response.Result)
+		})
+	}
+}

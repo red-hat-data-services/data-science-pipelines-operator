@@ -17,11 +17,16 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	dspav1 "github.com/opendatahub-io/data-science-pipelines-operator/api/v1"
 	"github.com/opendatahub-io/data-science-pipelines-operator/controllers/config"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var workflowControllerTemplatesDir = "workflow-controller"
@@ -69,6 +74,11 @@ func (r *DSPAReconciler) ReconcileWorkflowController(dsp *dspav1.DataSciencePipe
 			return workflowControllerEnabled, nil
 		}
 
+		if params.WorkflowAdmissionEnabled {
+			if err := r.checkWorkflowAdmission(params); err != nil {
+				return false, err
+			}
+		}
 		log.Info("Applying WorkflowController Resources")
 		workflowControllerEnabled = true
 		err := r.ApplyDir(dsp, params, workflowControllerTemplatesDir)
@@ -90,4 +100,27 @@ func (r *DSPAReconciler) ReconcileWorkflowController(dsp *dspav1.DataSciencePipe
 
 	log.Info("Finished applying WorkflowController Resources")
 	return workflowControllerEnabled, nil
+}
+
+// Confirm admission is enforcing the policy before deploying a controller that
+// relies on it. The dry run never persists a Workflow.
+func (r *DSPAReconciler) checkWorkflowAdmission(params *DSPAParams) error {
+	probe := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "argoproj.io/v1alpha1",
+		"kind":       "Workflow",
+		"metadata":   map[string]any{"namespace": params.Namespace, "generateName": "workflow-admission-"},
+		"spec": map[string]any{
+			"serviceAccountName": "workflow-admission-probe",
+			"entrypoint":         "probe",
+			"templates":          []any{map[string]any{"name": "probe", "suspend": map[string]any{}}},
+		},
+	}}
+	err := r.Create(context.Background(), probe, client.DryRunAll)
+	if apierrors.IsForbidden(err) && strings.Contains(err.Error(), "admission webhook \"workflow-account.opendatahub.io\" denied the request: "+workflowAccountDenied) {
+		return nil
+	}
+	if err == nil {
+		return fmt.Errorf("workflow admission did not reject the readiness check")
+	}
+	return fmt.Errorf("workflow admission is not ready: %w", err)
 }

@@ -25,7 +25,7 @@ spec:
       containers:
         - args:
             - --configmap
-            - ds-pipeline-workflow-config-testdsp2
+            - ds-pipeline-workflow-controller-testdsp2
             - --executor-image
             - argoexec:test2
             - --namespaced

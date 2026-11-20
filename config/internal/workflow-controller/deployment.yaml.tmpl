@@ -29,7 +29,7 @@ spec:
         {{ if .WorkflowController.CustomConfig }}
         - {{ .WorkflowController.CustomConfig }}
         {{ else }}
-        - ds-pipeline-workflow-config-{{.Name}}
+        - ds-pipeline-workflow-controller-{{.Name}}
         {{ end }}
         - --executor-image
         - {{ .WorkflowController.ArgoExecImage }}
@@ -37,6 +37,10 @@ spec:
         command:
         - workflow-controller
         env:
+        {{ if .WorkflowAdmissionEnabled }}
+        - name: ARGO_REQUIRE_WORKFLOW_SERVICE_ACCOUNT_AUTHORIZATION
+          value: "true"
+        {{ end }}
         - name: LEADER_ELECTION_IDENTITY
           valueFrom:
             fieldRef:
