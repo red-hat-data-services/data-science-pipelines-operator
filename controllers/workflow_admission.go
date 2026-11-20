@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -112,12 +113,12 @@ func (h WorkflowAdmission) Handle(ctx context.Context, req admission.Request) ad
 			if !isSchedule && req.Operation == admissionv1.Create {
 				return admission.Allowed("")
 			}
-			if isSchedule && req.Operation == admissionv1.Update && sameWorkflowSpec(previous.Spec, current.Spec) {
+			if isSchedule && req.Operation == admissionv1.Update && sameWorkflowSpec(previous.Spec, current.Spec, false) {
 				return admission.Allowed("")
 			}
 		case prefix + workflowControllerDefaultResourceNamePrefix + app.Name,
 			prefix + "ds-pipeline-persistenceagent-" + app.Name:
-			if !isSchedule && req.Operation == admissionv1.Update && sameWorkflowSpec(previous.Spec, current.Spec) {
+			if !isSchedule && req.Operation == admissionv1.Update && sameWorkflowSpec(previous.Spec, current.Spec, true) {
 				return admission.Allowed("")
 			}
 		}
@@ -165,8 +166,100 @@ func (h WorkflowAdmission) authorizeAccount(ctx context.Context, req admission.R
 	return admission.Allowed("")
 }
 
-func sameWorkflowSpec(previous, current json.RawMessage) bool {
-	var oldSpec, newSpec any
-	return json.Unmarshal(previous, &oldSpec) == nil && json.Unmarshal(current, &newSpec) == nil &&
-		reflect.DeepEqual(oldSpec, newSpec)
+func sameWorkflowSpec(previous, current json.RawMessage, normalizeArgo bool) bool {
+	decode := func(raw json.RawMessage) (map[string]any, error) {
+		var spec map[string]any
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		err := decoder.Decode(&spec)
+		return spec, err
+	}
+	oldSpec, oldErr := decode(previous)
+	newSpec, newErr := decode(current)
+	if oldErr != nil || newErr != nil {
+		return false
+	}
+	if normalizeArgo {
+		normalizeArgoWorkflowSpec(oldSpec)
+		normalizeArgoWorkflowSpec(newSpec)
+	}
+	return reflect.DeepEqual(oldSpec, newSpec)
+}
+
+// Argo's typed Workflow updates serialize some zero-valued structs as empty
+// objects. Ignore those representations only at their known spec paths.
+func normalizeArgoWorkflowSpec(spec map[string]any) {
+	removeEmptyObjects(spec, "arguments")
+	normalizeArgoHooks(spec["hooks"])
+	normalizeArgoTemplate(spec["templateDefaults"])
+	templates, _ := spec["templates"].([]any)
+	for _, template := range templates {
+		normalizeArgoTemplate(template)
+	}
+}
+
+func normalizeArgoTemplate(value any) {
+	template, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	removeEmptyObjects(template, "inputs", "outputs", "metadata")
+	for _, key := range []string{"container", "script"} {
+		normalizeArgoContainer(template[key])
+	}
+	containerSet, _ := template["containerSet"].(map[string]any)
+	containers, _ := containerSet["containers"].([]any)
+	for _, container := range containers {
+		normalizeArgoContainer(container)
+	}
+	for _, key := range []string{"initContainers", "sidecars"} {
+		containers, _ := template[key].([]any)
+		for _, container := range containers {
+			normalizeArgoContainer(container)
+		}
+	}
+
+	dag, _ := template["dag"].(map[string]any)
+	tasks, _ := dag["tasks"].([]any)
+	for _, task := range tasks {
+		normalizeArgoStep(task)
+	}
+	steps, _ := template["steps"].([]any)
+	for _, group := range steps {
+		parallelSteps, _ := group.([]any)
+		for _, step := range parallelSteps {
+			normalizeArgoStep(step)
+		}
+	}
+}
+
+func normalizeArgoContainer(value any) {
+	container, _ := value.(map[string]any)
+	removeEmptyObjects(container, "resources")
+	if container["name"] == "" {
+		delete(container, "name")
+	}
+}
+
+func normalizeArgoStep(value any) {
+	step, _ := value.(map[string]any)
+	removeEmptyObjects(step, "arguments")
+	normalizeArgoHooks(step["hooks"])
+	normalizeArgoTemplate(step["inline"])
+}
+
+func normalizeArgoHooks(value any) {
+	hooks, _ := value.(map[string]any)
+	for _, value := range hooks {
+		hook, _ := value.(map[string]any)
+		removeEmptyObjects(hook, "arguments")
+	}
+}
+
+func removeEmptyObjects(object map[string]any, keys ...string) {
+	for _, key := range keys {
+		if value, ok := object[key].(map[string]any); ok && len(value) == 0 {
+			delete(object, key)
+		}
+	}
 }

@@ -44,6 +44,14 @@ func TestWorkflowAdmission(t *testing.T) {
 		runner         = `{"spec":{"serviceAccountName":"pipeline-runner-example"}}`
 		defaultAccount = `{"spec":{"serviceAccountName":"default"}}`
 		schedule       = `{"spec":{"enabled":true}}`
+		minimalRun     = `{"spec":{"serviceAccountName":"pipeline-runner-example","templates":[
+			{"name":"graph","dag":{"tasks":[{"name":"run","template":"job"}]}},
+			{"name":"job","container":{"image":"example","command":["echo"]}}
+		]}}`
+		serializedRun = `{"spec":{"serviceAccountName":"pipeline-runner-example","arguments":{},"templates":[
+			{"name":"graph","inputs":{},"outputs":{},"metadata":{},"dag":{"tasks":[{"name":"run","template":"job","arguments":{}}]}},
+			{"name":"job","inputs":{},"outputs":{},"metadata":{},"container":{"name":"","image":"example","command":["echo"],"resources":{}}}
+		]}}`
 	)
 	scheme := runtime.NewScheme()
 	require.NoError(t, dspav1.AddToScheme(scheme))
@@ -71,6 +79,14 @@ func TestWorkflowAdmission(t *testing.T) {
 		{name: "managed scheduler submit", user: scheduler, resource: argo, spec: runner, allowed: true},
 		{name: "controller cannot submit a new named run", user: controller, resource: argo, spec: runner},
 		{name: "controller can write status", user: controller, resource: argo, spec: runner, previous: runner, allowed: true},
+		{name: "controller can write status after Argo serialization", user: controller, resource: argo, spec: serializedRun, previous: minimalRun, allowed: true},
+		{name: "submitter still needs use after equivalent serialization", user: direct, resource: argo, spec: serializedRun, previous: minimalRun},
+		{name: "controller cannot change a container command", user: controller, resource: argo,
+			spec:     `{"spec":{"serviceAccountName":"pipeline-runner-example","templates":[{"container":{"command":["goodbye"],"resources":{}}}]}}`,
+			previous: `{"spec":{"serviceAccountName":"pipeline-runner-example","templates":[{"container":{"command":["hello"]}}]}}`},
+		{name: "controller cannot add an unrelated empty field", user: controller, resource: argo,
+			spec:     `{"spec":{"serviceAccountName":"pipeline-runner-example","templates":[{"securityContext":{}}]}}`,
+			previous: `{"spec":{"serviceAccountName":"pipeline-runner-example","templates":[{}]}}`},
 		{name: "direct schedule denied", user: direct, resource: schedules, spec: schedule},
 		{name: "managed API schedule", user: api, resource: schedules, spec: schedule, allowed: true},
 		{name: "managed scheduler can write status", user: scheduler, resource: schedules, spec: schedule, previous: schedule, allowed: true},
