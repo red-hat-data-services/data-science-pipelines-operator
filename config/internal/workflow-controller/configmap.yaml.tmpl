@@ -8,9 +8,13 @@ metadata:
     app: ds-pipeline-workflow-controller-{{.Name}}
     component: data-science-pipelines
     dspa: {{.Name}}
-  name: ds-pipeline-workflow-controller-{{.Name}}
+  # Use a new name so the previous controller image can keep reading its ConfigMap during an upgrade.
+  name: ds-pipeline-workflow-config-{{.Name}}
   namespace: {{.Namespace}}
 data:
+  allowedWorkflowServiceAccounts: |
+    "{{.Namespace}}":
+      - "pipeline-runner-{{.Name}}"
   artifactRepository: |
     archiveLogs: false
     s3:

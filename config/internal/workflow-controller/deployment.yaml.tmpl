@@ -29,7 +29,7 @@ spec:
         {{ if .WorkflowController.CustomConfig }}
         - {{ .WorkflowController.CustomConfig }}
         {{ else }}
-        - ds-pipeline-workflow-controller-{{.Name}}
+        - ds-pipeline-workflow-config-{{.Name}}
         {{ end }}
         - --executor-image
         - {{ .WorkflowController.ArgoExecImage }}

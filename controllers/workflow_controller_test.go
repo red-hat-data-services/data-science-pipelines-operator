@@ -23,7 +23,12 @@ import (
 	dspav1 "github.com/opendatahub-io/data-science-pipelines-operator/api/v1"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/yaml"
 )
 
 func TestDeployWorkflowController(t *testing.T) {
@@ -71,6 +76,10 @@ func TestDeployWorkflowController(t *testing.T) {
 	assert.False(t, created)
 	assert.Nil(t, err)
 
+	// The controller from the previous release reads this ConfigMap throughout the rollout.
+	oldConfig := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: expectedWorkflowControllerName, Namespace: testNamespace}}
+	require.NoError(t, reconciler.Create(ctx, oldConfig))
+
 	// Run test reconciliation
 	workflowControllerEnabled, err := reconciler.ReconcileWorkflowController(dspa, params)
 	assert.Nil(t, err)
@@ -82,6 +91,15 @@ func TestDeployWorkflowController(t *testing.T) {
 	assert.True(t, created)
 	assert.Nil(t, err)
 
+	configName := "ds-pipeline-workflow-config-" + testDSPAName
+	assert.Contains(t, deployment.Spec.Template.Spec.Containers[0].Args, configName)
+	configMap := &corev1.ConfigMap{}
+	require.NoError(t, reconciler.Get(ctx, types.NamespacedName{Name: configName, Namespace: testNamespace}, configMap))
+	require.NoError(t, reconciler.Get(ctx, types.NamespacedName{Name: oldConfig.Name, Namespace: oldConfig.Namespace}, oldConfig))
+	assert.NotContains(t, oldConfig.Data, "allowedWorkflowServiceAccounts")
+	var allowedAccounts map[string][]string
+	require.NoError(t, yaml.Unmarshal([]byte(configMap.Data["allowedWorkflowServiceAccounts"]), &allowedAccounts))
+	assert.Equal(t, map[string][]string{testNamespace: {"pipeline-runner-" + testDSPAName}}, allowedAccounts)
 }
 
 func TestDontDeployWorkflowController(t *testing.T) {

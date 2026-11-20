@@ -24,7 +24,11 @@ import (
 
 	dspav1 "github.com/opendatahub-io/data-science-pipelines-operator/api/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestDeployAPIServer(t *testing.T) {
@@ -67,11 +71,21 @@ func TestDeployAPIServer(t *testing.T) {
 	err := params.ExtractParams(ctx, dspa, reconciler.Client, reconciler.Log)
 	assert.Nil(t, err)
 
+	params.ObjectStorageConnection.CredentialsSecret = &dspav1.S3CredentialSecret{SecretName: "artifacts"}
+
 	// Assert APIServer Deployment doesn't yet exist
 	deployment := &appsv1.Deployment{}
 	created, err := reconciler.IsResourceCreated(ctx, deployment, expectedAPIServerName, testNamespace)
 	assert.False(t, created)
 	assert.Nil(t, err)
+
+	// Reconciliation must replace the previous runner's rules on upgrade.
+	runnerKey := types.NamespacedName{Name: "pipeline-runner-" + testDSPAName, Namespace: testNamespace}
+	runnerRole := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: runnerKey.Name, Namespace: testNamespace},
+		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"create"}}},
+	}
+	require.NoError(t, reconciler.Create(ctx, runnerRole))
 
 	// Run test reconciliation
 	err = reconciler.ReconcileAPIServer(ctx, dspa, params)
@@ -82,6 +96,15 @@ func TestDeployAPIServer(t *testing.T) {
 	created, err = reconciler.IsResourceCreated(ctx, deployment, expectedAPIServerName, testNamespace)
 	assert.True(t, created)
 	assert.Nil(t, err)
+
+	require.NoError(t, reconciler.Get(ctx, runnerKey, runnerRole))
+	assert.ElementsMatch(t, []rbacv1.PolicyRule{
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"artifacts"}, Verbs: []string{"get"}},
+		{APIGroups: []string{""}, Resources: []string{"configmaps"}, ResourceNames: []string{"kfp-launcher"}, Verbs: []string{"get"}},
+		{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get"}},
+		{APIGroups: []string{""}, Resources: []string{"persistentvolumeclaims"}, Verbs: []string{"create", "get", "delete"}},
+		{APIGroups: []string{"argoproj.io"}, Resources: []string{"workflowtaskresults"}, Verbs: []string{"create", "patch"}},
+	}, runnerRole.Rules)
 
 	// Ensure readiness is handled
 	apiServerReady, err := reconciler.evaluateCondition(ctx, dspa, params.APIServerDefaultResourceName, config.APIServerReady)

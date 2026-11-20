@@ -349,6 +349,17 @@ spec:
 
 ## Using a DataSciencePipelinesApplication
 
+The managed workflow controller allows the namespace's `pipeline-runner-<DSPA name>` account.
+Its Role supports the bundled pipeline runtime, including artifact credentials and PVC steps.
+Pipelines that create workloads such as Jobs, Ray clusters, or AppWrappers need a separate
+service account with explicitly authorized access. Keep the default runner's permissions
+limited to what every workflow author in the project may use.
+
+If you use `spec.workflowController.customConfig`, include an
+`allowedWorkflowServiceAccounts` entry for the DSPA namespace and its runner account.
+If you also supply a custom launcher ConfigMap that refers to additional artifact Secrets,
+grant the runner `get` for only those named Secrets.
+
 When a `DataSciencePipelinesApplication` is deployed, use the MLPipelines UI endpoint to interact with DSP, either via a GUI or via API calls.
 
 You can retrieve this route by running the following in your terminal:
