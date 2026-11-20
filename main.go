@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -184,6 +185,12 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DSPAParams")
 		os.Exit(1)
+	}
+
+	if os.Getenv("DSPO_WORKFLOW_ADMISSION_ENABLED") == "true" {
+		mgr.GetWebhookServer().Register("/validate-workflow-account", &admission.Webhook{
+			Handler: controllers.WorkflowAdmission{Reader: mgr.GetAPIReader(), Client: mgr.GetClient()},
+		})
 	}
 
 	//+kubebuilder:scaffold:builder

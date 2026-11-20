@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: dspo-workflow-admission
+  annotations:
+    service.beta.openshift.io/serving-cert-secret-name: dspo-workflow-admission-tls
+spec:
+  ports:
+    - name: webhook
+      port: 9443
+  selector:
+    app.kubernetes.io/name: data-science-pipelines-operator
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: workflow-account
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+webhooks:
+  - name: workflow-account.opendatahub.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        namespace: redhat-ods-applications
+        name: dspo-workflow-admission
+        path: /validate-workflow-account
+        port: 9443
+    failurePolicy: Fail
+    sideEffects: None
+    timeoutSeconds: 5
+    matchConditions:
+      - name: execution-account
+        expression: >-
+          request.resource.resource == "scheduledworkflows" ||
+          (has(object.spec) && has(object.spec.serviceAccountName) &&
+           object.spec.serviceAccountName != "" && object.spec.serviceAccountName != "default") ||
+          (oldObject != null && has(oldObject.spec) && has(oldObject.spec.serviceAccountName) &&
+           oldObject.spec.serviceAccountName != "" && oldObject.spec.serviceAccountName != "default")
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["argoproj.io"]
+        apiVersions: ["v1alpha1"]
+        resources: ["workflows", "workflows/status"]
+        scope: Namespaced
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["kubeflow.org"]
+        apiVersions: ["v1beta1"]
+        resources: ["scheduledworkflows", "scheduledworkflows/status"]
+        scope: Namespaced

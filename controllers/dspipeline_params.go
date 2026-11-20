@@ -74,6 +74,7 @@ type DSPAParams struct {
 	MlmdGrpcPrivateKeyContents            string
 	WebhookName                           string
 	WorkflowController                    *dspa.WorkflowController
+	WorkflowAdmissionEnabled              bool
 	CustomKfpLauncherConfigMapData        string
 	WebhookAnnotations                    map[string]string
 	DBConnection
@@ -579,6 +580,7 @@ func (p *DSPAParams) ExtractParams(ctx context.Context, dsp *dspa.DataSciencePip
 	p.ScheduledWorkflow = dsp.Spec.ScheduledWorkflow.DeepCopy()
 	p.ScheduledWorkflowDefaultResourceName = scheduledWorkflowDefaultResourceNamePrefix + dsp.Name
 	p.WorkflowController = dsp.Spec.WorkflowController.DeepCopy()
+	p.WorkflowAdmissionEnabled = os.Getenv("DSPO_WORKFLOW_ADMISSION_ENABLED") == "true"
 	p.WorkflowControllerDefaultResourceName = workflowControllerDefaultResourceNamePrefix + dsp.Name
 	p.PersistenceAgent = dsp.Spec.PersistenceAgent.DeepCopy()
 	p.PersistentAgentDefaultResourceName = persistenceAgentDefaultResourceNamePrefix + dsp.Name

@@ -3,4 +3,13 @@ kind: Kustomization
 resources:
 - ../../base
 - ../../argo
+- workflow-admission.yaml
 namespace: redhat-ods-applications
+configurations:
+- workflow-admission-kustomize.yaml
+patches:
+- path: workflow-admission-manager.yaml
+  target:
+    group: apps
+    kind: Deployment
+    name: data-science-pipelines-operator-controller-manager
