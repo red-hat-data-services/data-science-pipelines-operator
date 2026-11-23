@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -175,22 +176,43 @@ func main() {
 		}
 	}
 
+	var workflowApprovalPublicKey string
+	if os.Getenv("DSPO_WORKFLOW_ADMISSION_ENABLED") == "true" {
+		key, err := controllers.EnsureWorkflowApprovalKey(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), os.Getenv("DSPO_WORKFLOW_APPROVAL_KEY_NAMESPACE"))
+		if err != nil {
+			setupLog.Error(err, "unable to initialize workflow admission approvals")
+			os.Exit(1)
+		}
+		workflowApprovalPublicKey, err = controllers.EncodeWorkflowApprovalPublicKey(key)
+		if err != nil {
+			setupLog.Error(err, "unable to encode the workflow approval public key")
+			os.Exit(1)
+		}
+		mgr.GetWebhookServer().Register("/validate-workflow-account", &admission.Webhook{
+			Handler: controllers.WorkflowAdmission{
+				Reader: mgr.GetAPIReader(), Client: mgr.GetClient(), SigningKey: key,
+				Mode: func(ctx context.Context) (controllers.WorkflowAdmissionMode, error) {
+					return controllers.GetWorkflowAdmissionMode(ctx, mgr.GetAPIReader())
+				},
+			},
+		})
+		if err := mgr.AddReadyzCheck("workflow-admission", mgr.GetWebhookServer().StartedChecker()); err != nil {
+			setupLog.Error(err, "unable to register webhook readiness check")
+			os.Exit(1)
+		}
+	}
+
 	if err = (&controllers.DSPAReconciler{
-		Client:                  mgr.GetClient(),
-		Scheme:                  mgr.GetScheme(),
-		Log:                     ctrl.Log,
-		TemplatesPath:           "config/internal/",
-		MaxConcurrentReconciles: maxConcurrentReconciles,
-		WebhookAnnotations:      webhookAnnotations,
+		Client:                    mgr.GetClient(),
+		Scheme:                    mgr.GetScheme(),
+		Log:                       ctrl.Log,
+		TemplatesPath:             "config/internal/",
+		MaxConcurrentReconciles:   maxConcurrentReconciles,
+		WebhookAnnotations:        webhookAnnotations,
+		WorkflowApprovalPublicKey: workflowApprovalPublicKey,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DSPAParams")
 		os.Exit(1)
-	}
-
-	if os.Getenv("DSPO_WORKFLOW_ADMISSION_ENABLED") == "true" {
-		mgr.GetWebhookServer().Register("/validate-workflow-account", &admission.Webhook{
-			Handler: controllers.WorkflowAdmission{Reader: mgr.GetAPIReader(), Client: mgr.GetClient()},
-		})
 	}
 
 	//+kubebuilder:scaffold:builder

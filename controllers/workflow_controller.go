@@ -75,9 +75,10 @@ func (r *DSPAReconciler) ReconcileWorkflowController(dsp *dspav1.DataSciencePipe
 		}
 
 		if params.WorkflowAdmissionEnabled {
-			if err := r.checkWorkflowAdmission(params); err != nil {
+			if err := r.activateWorkflowAdmission(params); err != nil {
 				return false, err
 			}
+			params.WorkflowApprovalPublicKey = r.WorkflowApprovalPublicKey
 		}
 		log.Info("Applying WorkflowController Resources")
 		workflowControllerEnabled = true

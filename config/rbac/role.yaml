@@ -50,6 +50,15 @@ rules:
   - watch
 - apiGroups:
   - admissionregistration.k8s.io
+  resourceNames:
+  - workflow-account
+  resources:
+  - mutatingwebhookconfigurations
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - admissionregistration.k8s.io
   resources:
   - mutatingwebhookconfigurations
   - validatingwebhookconfigurations

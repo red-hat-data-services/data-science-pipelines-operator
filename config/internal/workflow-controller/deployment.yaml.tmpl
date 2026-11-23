@@ -40,6 +40,8 @@ spec:
         {{ if .WorkflowAdmissionEnabled }}
         - name: ARGO_REQUIRE_WORKFLOW_SERVICE_ACCOUNT_AUTHORIZATION
           value: "true"
+        - name: ARGO_WORKFLOW_APPROVAL_PUBLIC_KEY
+          value: {{printf "%q" .WorkflowApprovalPublicKey}}
         {{ end }}
         - name: LEADER_ELECTION_IDENTITY
           valueFrom:

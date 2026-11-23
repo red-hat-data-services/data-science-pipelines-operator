@@ -19,6 +19,10 @@ package controllers
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -28,6 +32,7 @@ import (
 	authn "k8s.io/api/authentication/v1"
 	authz "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -53,10 +58,13 @@ func TestWorkflowAdmission(t *testing.T) {
 			{"name":"job","inputs":{},"outputs":{},"metadata":{},"container":{"name":"","image":"example","command":["echo"],"resources":{}}}
 		]}}`
 	)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
 	scheme := runtime.NewScheme()
 	require.NoError(t, dspav1.AddToScheme(scheme))
 	app := &dspav1.DataSciencePipelinesApplication{ObjectMeta: metav1.ObjectMeta{Name: "example", Namespace: "team"}}
 	argo := metav1.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "workflows"}
+	cron := metav1.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "cronworkflows"}
 	schedules := metav1.GroupVersionResource{Group: "kubeflow.org", Version: "v1beta1", Resource: "scheduledworkflows"}
 
 	tests := []struct {
@@ -76,8 +84,10 @@ func TestWorkflowAdmission(t *testing.T) {
 		{name: "cannot update protected workflow to default", user: direct, resource: argo, spec: defaultAccount, previous: runner},
 		{name: "review error fails closed", user: direct, resource: argo, spec: runner, reviewError: true},
 		{name: "managed API submit", user: api, resource: argo, spec: runner, allowed: true},
-		{name: "managed scheduler submit", user: scheduler, resource: argo, spec: runner, allowed: true},
+		{name: "managed scheduler needs approved parent", user: scheduler, resource: argo, spec: runner},
 		{name: "controller cannot submit a new named run", user: controller, resource: argo, spec: runner},
+		{name: "controller can write cron status", user: controller, resource: cron, spec: `{"spec":{"workflowSpec":{"serviceAccountName":"pipeline-runner-example","arguments":{}}}}`, previous: `{"spec":{"workflowSpec":{"serviceAccountName":"pipeline-runner-example"}}}`, allowed: true},
+		{name: "controller cannot replace cron account", user: controller, resource: cron, spec: `{"spec":{"workflowSpec":{"serviceAccountName":"other"}}}`, previous: `{"spec":{"workflowSpec":{"serviceAccountName":"pipeline-runner-example"}}}`},
 		{name: "controller can write status", user: controller, resource: argo, spec: runner, previous: runner, allowed: true},
 		{name: "controller can write status after Argo serialization", user: controller, resource: argo, spec: serializedRun, previous: minimalRun, allowed: true},
 		{name: "submitter still needs use after equivalent serialization", user: direct, resource: argo, spec: serializedRun, previous: minimalRun},
@@ -111,7 +121,7 @@ func TestWorkflowAdmission(t *testing.T) {
 				},
 			}).Build()
 			request := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-				Namespace: "team", Resource: test.resource, Operation: admissionv1.Create,
+				Namespace: "team", Name: "workflow", Resource: test.resource, Operation: admissionv1.Create,
 				Object:   runtime.RawExtension{Raw: []byte(test.spec)},
 				UserInfo: authn.UserInfo{Username: test.user, Groups: []string{"example-group"}},
 			}}
@@ -119,8 +129,51 @@ func TestWorkflowAdmission(t *testing.T) {
 				request.Operation = admissionv1.Update
 				request.OldObject.Raw = []byte(test.previous)
 			}
-			response := (WorkflowAdmission{Reader: kube, Client: kube}).Handle(context.Background(), request)
+			response := (WorkflowAdmission{Reader: kube, Client: kube, SigningKey: key}).Handle(context.Background(), request)
 			require.Equal(t, test.allowed, response.Allowed, "%+v", response.Result)
 		})
 	}
+}
+
+func TestWorkflowSpecResourceQuantities(t *testing.T) {
+	a := json.RawMessage(`{"templates":[{"container":{"resources":{"requests":{"cpu":"1","memory":"1Gi"}}}}]}`)
+	b := json.RawMessage(`{"templates":[{"container":{"resources":{"requests":{"cpu":"1000m","memory":1073741824}}}}]}`)
+	c := json.RawMessage(`{"templates":[{"container":{"resources":{"requests":{"cpu":"1100m","memory":1073741824}}}}]}`)
+	require.True(t, sameWorkflowSpec(a, b, true))
+	require.False(t, sameWorkflowSpec(a, c, true))
+}
+
+func TestNamedCronWorkflowRequiresApproval(t *testing.T) {
+	ctx := context.Background()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	parent := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "argoproj.io/v1alpha1", "kind": "CronWorkflow",
+		"metadata": map[string]any{"name": "schedule", "namespace": "team", "uid": "parent-uid"},
+		"spec":     map[string]any{"workflowSpec": map[string]any{"serviceAccountName": "pipeline-runner"}},
+	}}
+	reader := fake.NewClientBuilder().WithObjects(parent).Build()
+	handler := WorkflowAdmission{Reader: reader, Client: reader, SigningKey: key}
+	child := workflowAdmissionObject{Metadata: metav1.ObjectMeta{
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: "argoproj.io/v1alpha1", Kind: "CronWorkflow", Name: "schedule", UID: "parent-uid"}},
+	}}
+	controller := true
+	child.Metadata.OwnerReferences[0].Controller = &controller
+	allowed, err := handler.authorizedSchedule(ctx, "team", cronWorkflowResource, child, "pipeline-runner")
+	require.NoError(t, err)
+	require.False(t, allowed)
+
+	spec, err := json.Marshal(parent.Object["spec"])
+	require.NoError(t, err)
+	hash, err := approvalSpecHash(spec, cronWorkflowResource)
+	require.NoError(t, err)
+	claim := workflowApproval{Namespace: "team", Resource: cronWorkflowResource, Name: "schedule", UID: "parent-uid", Account: "pipeline-runner", SpecHash: hash}
+	token, err := claim.sign(key)
+	require.NoError(t, err)
+	parent.SetAnnotations(map[string]string{workflowApprovalAnnotation: token})
+	require.NoError(t, reader.Update(ctx, parent))
+
+	allowed, err = handler.authorizedSchedule(ctx, "team", cronWorkflowResource, child, "pipeline-runner")
+	require.NoError(t, err)
+	require.True(t, allowed)
 }

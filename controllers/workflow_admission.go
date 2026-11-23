@@ -19,15 +19,20 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 
 	dspav1 "github.com/opendatahub-io/data-science-pipelines-operator/api/v1"
 	"github.com/opendatahub-io/data-science-pipelines-operator/controllers/config"
 	admissionv1 "k8s.io/api/admission/v1"
 	authv1 "k8s.io/api/authorization/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kuberand "k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -35,23 +40,15 @@ import (
 // WorkflowAdmission authorizes the account on executable objects before the
 // controller uses it. The request identity is supplied by Kubernetes.
 type WorkflowAdmission struct {
-	Reader client.Reader
-	Client client.Client
+	Reader     client.Reader
+	Client     client.Client
+	SigningKey *ecdsa.PrivateKey
+	Mode       func(context.Context) (WorkflowAdmissionMode, error)
 }
 
 type workflowAdmissionObject struct {
-	Spec json.RawMessage `json:"spec"`
-}
-
-func (obj workflowAdmissionObject) workflowAccount() (string, error) {
-	var spec struct {
-		ServiceAccountName string `json:"serviceAccountName"`
-	}
-	if len(obj.Spec) == 0 {
-		return "", nil
-	}
-	err := json.Unmarshal(obj.Spec, &spec)
-	return spec.ServiceAccountName, err
+	Metadata metav1.ObjectMeta `json:"metadata"`
+	Spec     json.RawMessage   `json:"spec"`
 }
 
 func requiresWorkflowAccountAuthorization(account string) bool {
@@ -88,59 +85,226 @@ func (h WorkflowAdmission) Handle(ctx context.Context, req admission.Request) ad
 		}
 	}
 
-	isSchedule := req.Resource.Group == "kubeflow.org" && req.Resource.Resource == "scheduledworkflows"
-	account, err := current.workflowAccount()
-	if err != nil {
-		return admission.Errored(http.StatusBadRequest, err)
-	}
-	oldAccount, err := previous.workflowAccount()
-	if err != nil {
-		return admission.Errored(http.StatusBadRequest, err)
-	}
-	if !isSchedule && !requiresWorkflowAccountAuthorization(account) && !requiresWorkflowAccountAuthorization(oldAccount) {
+	if len(apps.Items) == 0 {
 		return admission.Allowed("")
 	}
+	if h.Mode != nil {
+		mode, err := h.Mode(ctx)
+		if err != nil {
+			return admission.Errored(http.StatusServiceUnavailable, err)
+		}
+		if mode == WorkflowAdmissionRollback {
+			return admission.Allowed("")
+		}
+		if mode == WorkflowAdmissionStaged {
+			// Probe only TLS, routing and webhook startup in this phase. No
+			// stored objects receive approvals before fail-closed activation.
+			if req.DryRun != nil && *req.DryRun && req.Resource.Resource == workflowResource {
+				account, _ := unmarshalWorkflowAccount(current.Spec)
+				if account == "workflow-admission-probe" {
+					return admission.Denied(workflowAccountDenied + ": admission endpoint ready")
+				}
+			}
+			return admission.Allowed("")
+		}
+	}
+	resource := req.Resource.Resource
+	isWorkflow := resource == workflowResource
+	isCron := resource == cronWorkflowResource
+	isScheduled := resource == scheduledWorkflowResource
+	isUpdate := req.Operation == admissionv1.Update
 
-	protected := false
+	var api, scheduler, argo, persistence bool
 	for _, app := range apps.Items {
-		protected = true
 		prefix := "system:serviceaccount:" + req.Namespace + ":"
 		switch req.UserInfo.Username {
 		case prefix + apiServerDefaultResourceNamePrefix + app.Name:
-			// The pipeline API authorizes the user's run or schedule before submitting it.
-			return admission.Allowed("")
+			api = true
 		case prefix + scheduledWorkflowDefaultResourceNamePrefix + app.Name:
-			if !isSchedule && req.Operation == admissionv1.Create {
-				return admission.Allowed("")
-			}
-			if isSchedule && req.Operation == admissionv1.Update && sameWorkflowSpec(previous.Spec, current.Spec, false) {
-				return admission.Allowed("")
-			}
-		case prefix + workflowControllerDefaultResourceNamePrefix + app.Name,
-			prefix + "ds-pipeline-persistenceagent-" + app.Name:
-			if !isSchedule && req.Operation == admissionv1.Update && sameWorkflowSpec(previous.Spec, current.Spec, true) {
-				return admission.Allowed("")
-			}
+			scheduler = true
+		case prefix + workflowControllerDefaultResourceNamePrefix + app.Name:
+			argo = true
+		case prefix + "ds-pipeline-persistenceagent-" + app.Name:
+			persistence = true
 		}
 	}
-	if !protected {
+	previousApproval := previous.Metadata.Annotations[workflowApprovalAnnotation]
+	currentApproval := current.Metadata.Annotations[workflowApprovalAnnotation]
+	if req.SubResource != "" && previousApproval != currentApproval {
+		return admission.Denied("workflow approval may not be changed on a subresource")
+	}
+
+	// The controller and persistence agent serialize full Workflow updates, and
+	// the legacy scheduler also writes status through the main resource.
+	if isUpdate && ((isWorkflow && (argo || persistence)) || (isCron && argo) || (isScheduled && scheduler)) {
+		sameSpec := sameWorkflowSpec(previous.Spec, current.Spec, isWorkflow)
+		if isCron {
+			sameSpec = sameCronWorkflowSpec(previous.Spec, current.Spec)
+		}
+		if previousApproval == currentApproval && sameSpec {
+			return admission.Allowed("")
+		}
+		return admission.Denied("controller may not change the approved workflow specification")
+	}
+	if req.SubResource != "" {
+		if isScheduled {
+			return admission.Denied("only the managed scheduler may update schedule status")
+		}
+		account, err := h.executionAccount(ctx, req.Namespace, resource, previous.Spec)
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if requiresWorkflowAccountAuthorization(account) {
+			return h.authorizeAccount(ctx, req, account)
+		}
 		return admission.Allowed("")
 	}
-	if isSchedule {
-		// A raw schedule can cause the trusted scheduler to submit a Workflow.
-		// Require the pipeline API to create or change its executable specification.
+
+	account, err := h.executionAccount(ctx, req.Namespace, resource, current.Spec)
+	if err != nil {
+		return admission.Errored(http.StatusBadRequest, err)
+	}
+	if isScheduled && !api {
 		return admission.Denied("submit the schedule through the pipeline API")
 	}
 
-	if account != oldAccount && requiresWorkflowAccountAuthorization(oldAccount) {
-		if decision := h.authorizeAccount(ctx, req, oldAccount); !decision.Allowed {
+	if !requiresWorkflowAccountAuthorization(account) {
+		if isUpdate && !api {
+			oldAccount, err := h.executionAccount(ctx, req.Namespace, resource, previous.Spec)
+			if err != nil {
+				return admission.Errored(http.StatusBadRequest, err)
+			}
+			if requiresWorkflowAccountAuthorization(oldAccount) {
+				if decision := h.authorizeAccount(ctx, req, oldAccount); !decision.Allowed {
+					return decision
+				}
+			}
+		}
+		return patchWorkflowApproval(req.Object.Raw, "", "", isScheduled)
+	}
+
+	claim := workflowApproval{
+		Namespace: req.Namespace, Resource: resource, Name: current.Metadata.Name,
+		UID: string(current.Metadata.UID), Account: account,
+	}
+	if claim.Name == "" {
+		claim.Name = req.Name
+	}
+	generatedName := ""
+	if claim.Name == "" && !isUpdate && current.Metadata.GenerateName != "" {
+		prefix := current.Metadata.GenerateName
+		if len(prefix) > 58 {
+			prefix = prefix[:58]
+		}
+		generatedName = prefix + kuberand.String(5)
+		claim.Name = generatedName
+	}
+	if !isWorkflow {
+		claim.SpecHash, err = approvalSpecHash(current.Spec, resource)
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+	}
+	switch {
+	case isWorkflow && !isUpdate && (scheduler || argo):
+		parentResource := cronWorkflowResource
+		if scheduler {
+			parentResource = scheduledWorkflowResource
+		}
+		allowed, err := h.authorizedSchedule(ctx, req.Namespace, parentResource, current, account)
+		if err != nil {
+			return admission.Errored(http.StatusInternalServerError, err)
+		}
+		if !allowed {
+			return admission.Denied(workflowAccountDenied + ": approve the parent schedule before launching a named-account workflow")
+		}
+	case isScheduled && api:
+		// CreateJob requests approval after authorizing the actual executable
+		// account. Reconciliation can carry forward an existing approval for
+		// the same executable spec.
+		if current.Metadata.Annotations[workflowApprovalAPIRequest] != "true" {
+			// Legacy schedules remain editable by the API without minting
+			// authorization for their stored definition.
+			if !verifyWorkflowApproval(h.SigningKey, previousApproval, claim) {
+				return patchWorkflowApproval(req.Object.Raw, "", "", true)
+			}
+		}
+	case isWorkflow && api:
+		// The pipeline API authorizes the literal account before submission.
+		literal, err := unmarshalWorkflowAccount(current.Spec)
+		if err != nil || literal != account {
+			return admission.Denied(workflowAccountDenied + ": pipeline API must authorize the effective account explicitly")
+		}
+	default:
+		if isUpdate {
+			oldAccount, err := h.executionAccount(ctx, req.Namespace, resource, previous.Spec)
+			if err != nil {
+				return admission.Errored(http.StatusBadRequest, err)
+			}
+			if oldAccount != account && requiresWorkflowAccountAuthorization(oldAccount) {
+				if decision := h.authorizeAccount(ctx, req, oldAccount); !decision.Allowed {
+					return decision
+				}
+			}
+		}
+		if decision := h.authorizeAccount(ctx, req, account); !decision.Allowed {
 			return decision
 		}
 	}
-	if requiresWorkflowAccountAuthorization(account) {
-		return h.authorizeAccount(ctx, req, account)
+	if claim.Name == "" {
+		return admission.Errored(http.StatusBadRequest, fmt.Errorf("workflow has neither name nor generateName"))
 	}
-	return admission.Allowed("")
+	token, err := claim.sign(h.SigningKey)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+	return patchWorkflowApproval(req.Object.Raw, token, generatedName, isScheduled)
+}
+
+// Only mutate the metadata wrapper so Kubernetes quantities and unknown spec
+// fields round-trip exactly.
+func patchWorkflowApproval(raw []byte, approval, generatedName string, clearAPIRequest bool) admission.Response {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return admission.Errored(http.StatusBadRequest, err)
+	}
+	var metadata map[string]json.RawMessage
+	if raw := object["metadata"]; len(raw) != 0 {
+		if err := json.Unmarshal(raw, &metadata); err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+	}
+	if metadata == nil {
+		metadata = map[string]json.RawMessage{}
+	}
+	var annotations map[string]string
+	if raw := metadata["annotations"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &annotations); err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+	}
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	if clearAPIRequest {
+		delete(annotations, workflowApprovalAPIRequest)
+	}
+	if approval == "" {
+		delete(annotations, workflowApprovalAnnotation)
+	} else {
+		annotations[workflowApprovalAnnotation] = approval
+	}
+	if len(annotations) == 0 {
+		delete(metadata, "annotations")
+	} else {
+		metadata["annotations"], _ = json.Marshal(annotations)
+	}
+	if generatedName != "" {
+		metadata["name"], _ = json.Marshal(generatedName)
+	}
+	object["metadata"], _ = json.Marshal(metadata)
+	updated, _ := json.Marshal(object)
+	return admission.PatchResponseFromRaw(raw, updated)
 }
 
 func (h WorkflowAdmission) authorizeAccount(ctx context.Context, req admission.Request, account string) admission.Response {
@@ -166,16 +330,17 @@ func (h WorkflowAdmission) authorizeAccount(ctx context.Context, req admission.R
 	return admission.Allowed("")
 }
 
+func decodeWorkflowSpec(raw json.RawMessage) (map[string]any, error) {
+	var spec map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	err := decoder.Decode(&spec)
+	return spec, err
+}
+
 func sameWorkflowSpec(previous, current json.RawMessage, normalizeArgo bool) bool {
-	decode := func(raw json.RawMessage) (map[string]any, error) {
-		var spec map[string]any
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.UseNumber()
-		err := decoder.Decode(&spec)
-		return spec, err
-	}
-	oldSpec, oldErr := decode(previous)
-	newSpec, newErr := decode(current)
+	oldSpec, oldErr := decodeWorkflowSpec(previous)
+	newSpec, newErr := decodeWorkflowSpec(current)
 	if oldErr != nil || newErr != nil {
 		return false
 	}
@@ -186,10 +351,32 @@ func sameWorkflowSpec(previous, current json.RawMessage, normalizeArgo bool) boo
 	return reflect.DeepEqual(oldSpec, newSpec)
 }
 
+func sameCronWorkflowSpec(previous, current json.RawMessage) bool {
+	a, err := decodeWorkflowSpec(previous)
+	if err != nil {
+		return false
+	}
+	b, err := decodeWorkflowSpec(current)
+	if err != nil {
+		return false
+	}
+	for _, cron := range []map[string]any{a, b} {
+		workflow, _ := cron["workflowSpec"].(map[string]any)
+		normalizeArgoWorkflowSpec(workflow)
+	}
+	return reflect.DeepEqual(a, b)
+}
+
 // Argo's typed Workflow updates serialize some zero-valued structs as empty
 // objects. Ignore those representations only at their known spec paths.
 func normalizeArgoWorkflowSpec(spec map[string]any) {
 	removeEmptyObjects(spec, "arguments")
+	claims, _ := spec["volumeClaimTemplates"].([]any)
+	for _, value := range claims {
+		claim, _ := value.(map[string]any)
+		claimSpec, _ := claim["spec"].(map[string]any)
+		normalizeResourceRequirements(claimSpec["resources"])
+	}
 	normalizeArgoHooks(spec["hooks"])
 	normalizeArgoTemplate(spec["templateDefaults"])
 	templates, _ := spec["templates"].([]any)
@@ -236,8 +423,36 @@ func normalizeArgoTemplate(value any) {
 func normalizeArgoContainer(value any) {
 	container, _ := value.(map[string]any)
 	removeEmptyObjects(container, "resources")
+	normalizeResourceRequirements(container["resources"])
 	if container["name"] == "" {
 		delete(container, "name")
+	}
+}
+
+func normalizeResourceRequirements(value any) {
+	requirements, _ := value.(map[string]any)
+	for _, field := range []string{"requests", "limits"} {
+		quantities, _ := requirements[field].(map[string]any)
+		for name, raw := range quantities {
+			var text string
+			switch v := raw.(type) {
+			case string:
+				text = v
+			case json.Number:
+				text = v.String()
+			default:
+				continue
+			}
+			quantity, err := resource.ParseQuantity(text)
+			if err != nil {
+				continue
+			}
+			canonical := quantity.AsDec().String()
+			if strings.Contains(canonical, ".") {
+				canonical = strings.TrimRight(strings.TrimRight(canonical, "0"), ".")
+			}
+			quantities[name] = canonical
+		}
 	}
 }
 

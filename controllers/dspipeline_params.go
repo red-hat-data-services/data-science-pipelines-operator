@@ -75,6 +75,7 @@ type DSPAParams struct {
 	WebhookName                           string
 	WorkflowController                    *dspa.WorkflowController
 	WorkflowAdmissionEnabled              bool
+	WorkflowApprovalPublicKey             string
 	CustomKfpLauncherConfigMapData        string
 	WebhookAnnotations                    map[string]string
 	DBConnection

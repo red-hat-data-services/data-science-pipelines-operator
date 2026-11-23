@@ -55,11 +55,12 @@ const (
 // DSPAReconciler reconciles a DSPAParams object
 type DSPAReconciler struct {
 	client.Client
-	Scheme                  *runtime.Scheme
-	Log                     logr.Logger
-	TemplatesPath           string
-	MaxConcurrentReconciles int
-	WebhookAnnotations      map[string]string
+	Scheme                    *runtime.Scheme
+	Log                       logr.Logger
+	TemplatesPath             string
+	MaxConcurrentReconciles   int
+	WebhookAnnotations        map[string]string
+	WorkflowApprovalPublicKey string
 }
 
 func (r *DSPAReconciler) ApplyDir(owner mf.Owner, params *DSPAParams, directory string, fns ...mf.Transformer) error {

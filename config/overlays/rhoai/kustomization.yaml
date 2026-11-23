@@ -5,8 +5,6 @@ resources:
 - ../../argo
 - workflow-admission.yaml
 namespace: redhat-ods-applications
-configurations:
-- workflow-admission-kustomize.yaml
 patches:
 - path: workflow-admission-manager.yaml
   target:
