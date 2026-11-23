@@ -1,10 +1,7 @@
 # Workflow account admission in RHOAI 2.25
 
-Build and package the matching DSPO, Argo workflow-controller, and DSP
-API server from this change together. Use their release image digests.
-The pipeline API must authorize the effective account on both create
-and retry before the admission webhook trusts its submissions. Verify
-the images of the running API servers during a staggered rollout.
+Build and package the matching DSPO and Argo workflow controller together.
+Validate the final Pod policy with the Argo image digest selected for the release.
 
 The operator takes checks in this order:
 
@@ -21,8 +18,13 @@ The operator takes checks in this order:
 Pending and suspended Workflows with a non-default account require an
 authorized spec update before further Pods can start. An authorized update
 also approves an existing Argo CronWorkflow. Review the referenced template
-and account before making that update. Recreate legacy DSP ScheduledWorkflows
-through the updated DSP API so their embedded accounts can be checked.
+and account before making that update.
+
+The API server's identity is subject to the same `serviceaccounts/use`
+check as other submitters. DSP submissions, retries, and schedules that use
+a named service account, including the operator-configured pipeline runner,
+require an explicit RBAC delegation to that API server identity. Any
+delegation authorizes the API server for that account across its callers.
 
 ## Rollback
 

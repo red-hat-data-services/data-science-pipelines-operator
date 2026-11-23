@@ -169,7 +169,7 @@ func (h WorkflowAdmission) Handle(ctx context.Context, req admission.Request) ad
 	}
 
 	if !requiresWorkflowAccountAuthorization(account) {
-		if isUpdate && !api {
+		if isUpdate {
 			oldAccount, err := h.executionAccount(ctx, req.Namespace, resource, previous.Spec)
 			if err != nil {
 				return admission.Errored(http.StatusBadRequest, err)
@@ -180,7 +180,7 @@ func (h WorkflowAdmission) Handle(ctx context.Context, req admission.Request) ad
 				}
 			}
 		}
-		return patchWorkflowApproval(req.Object.Raw, "", "", isScheduled)
+		return patchWorkflowApproval(req.Object.Raw, "", "")
 	}
 
 	claim := workflowApproval{
@@ -218,24 +218,9 @@ func (h WorkflowAdmission) Handle(ctx context.Context, req admission.Request) ad
 		if !allowed {
 			return admission.Denied(workflowAccountDenied + ": approve the parent schedule before launching a named-account workflow")
 		}
-	case isScheduled && api:
-		// CreateJob requests approval after authorizing the actual executable
-		// account. Reconciliation can carry forward an existing approval for
-		// the same executable spec.
-		if current.Metadata.Annotations[workflowApprovalAPIRequest] != "true" {
-			// Legacy schedules remain editable by the API without minting
-			// authorization for their stored definition.
-			if !verifyWorkflowApproval(h.SigningKey, previousApproval, claim) {
-				return patchWorkflowApproval(req.Object.Raw, "", "", true)
-			}
-		}
-	case isWorkflow && api:
-		// The pipeline API authorizes the literal account before submission.
-		literal, err := unmarshalWorkflowAccount(current.Spec)
-		if err != nil || literal != account {
-			return admission.Denied(workflowAccountDenied + ": pipeline API must authorize the effective account explicitly")
-		}
 	default:
+		// Kubernetes authenticates the pipeline API service account, so any
+		// delegation to it must be explicit in RBAC.
 		if isUpdate {
 			oldAccount, err := h.executionAccount(ctx, req.Namespace, resource, previous.Spec)
 			if err != nil {
@@ -258,12 +243,12 @@ func (h WorkflowAdmission) Handle(ctx context.Context, req admission.Request) ad
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
-	return patchWorkflowApproval(req.Object.Raw, token, generatedName, isScheduled)
+	return patchWorkflowApproval(req.Object.Raw, token, generatedName)
 }
 
 // Only mutate the metadata wrapper so Kubernetes quantities and unknown spec
 // fields round-trip exactly.
-func patchWorkflowApproval(raw []byte, approval, generatedName string, clearAPIRequest bool) admission.Response {
+func patchWorkflowApproval(raw []byte, approval, generatedName string) admission.Response {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &object); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
@@ -285,9 +270,6 @@ func patchWorkflowApproval(raw []byte, approval, generatedName string, clearAPIR
 	}
 	if annotations == nil {
 		annotations = map[string]string{}
-	}
-	if clearAPIRequest {
-		delete(annotations, workflowApprovalAPIRequest)
 	}
 	if approval == "" {
 		delete(annotations, workflowApprovalAnnotation)

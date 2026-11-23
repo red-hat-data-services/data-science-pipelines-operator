@@ -49,6 +49,7 @@ func TestWorkflowAdmission(t *testing.T) {
 		runner         = `{"spec":{"serviceAccountName":"pipeline-runner-example"}}`
 		defaultAccount = `{"spec":{"serviceAccountName":"default"}}`
 		schedule       = `{"spec":{"enabled":true}}`
+		namedSchedule  = `{"spec":{"serviceAccount":"pipeline-runner-example"}}`
 		minimalRun     = `{"spec":{"serviceAccountName":"pipeline-runner-example","templates":[
 			{"name":"graph","dag":{"tasks":[{"name":"run","template":"job"}]}},
 			{"name":"job","container":{"image":"example","command":["echo"]}}
@@ -83,7 +84,11 @@ func TestWorkflowAdmission(t *testing.T) {
 		{name: "cannot update to runner", user: direct, resource: argo, spec: runner, previous: defaultAccount},
 		{name: "cannot update protected workflow to default", user: direct, resource: argo, spec: defaultAccount, previous: runner},
 		{name: "review error fails closed", user: direct, resource: argo, spec: runner, reviewError: true},
-		{name: "managed API submit", user: api, resource: argo, spec: runner, allowed: true},
+		{name: "managed API default-account submission", user: api, resource: argo, spec: defaultAccount, allowed: true},
+		{name: "managed API named-account submission requires use", user: api, resource: argo, spec: runner},
+		{name: "managed API named-account retry requires use", user: api, resource: argo, spec: runner, previous: runner},
+		{name: "managed API cannot remove named account without use", user: api, resource: argo, spec: defaultAccount, previous: runner},
+		{name: "managed API named-account submission with explicit use", user: api, resource: argo, spec: runner, grant: true, allowed: true},
 		{name: "managed scheduler needs approved parent", user: scheduler, resource: argo, spec: runner},
 		{name: "controller cannot submit a new named run", user: controller, resource: argo, spec: runner},
 		{name: "controller can write cron status", user: controller, resource: cron, spec: `{"spec":{"workflowSpec":{"serviceAccountName":"pipeline-runner-example","arguments":{}}}}`, previous: `{"spec":{"workflowSpec":{"serviceAccountName":"pipeline-runner-example"}}}`, allowed: true},
@@ -99,6 +104,9 @@ func TestWorkflowAdmission(t *testing.T) {
 			previous: `{"spec":{"serviceAccountName":"pipeline-runner-example","templates":[{}]}}`},
 		{name: "direct schedule denied", user: direct, resource: schedules, spec: schedule},
 		{name: "managed API schedule", user: api, resource: schedules, spec: schedule, allowed: true},
+		{name: "managed API named-account schedule requires use", user: api, resource: schedules, spec: namedSchedule},
+		{name: "managed API named-account schedule with explicit use", user: api, resource: schedules, spec: namedSchedule, grant: true, allowed: true},
+		{name: "legacy request annotation does not approve an embedded account", user: api, resource: schedules, spec: `{"metadata":{"annotations":{"pipelines.opendatahub.io/authorize-scheduled-workflow":"true"}},"spec":{"workflow":{"spec":{"serviceAccountName":"pipeline-runner-example"}}}}`},
 		{name: "managed scheduler can write status", user: scheduler, resource: schedules, spec: schedule, previous: schedule, allowed: true},
 		{name: "scheduler cannot change executable schedule", user: scheduler, resource: schedules, spec: schedule, previous: `{"spec":{}}`},
 	}

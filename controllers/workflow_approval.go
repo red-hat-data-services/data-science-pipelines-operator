@@ -20,7 +20,6 @@ import (
 
 const workflowApprovalAnnotation = "pipelines.opendatahub.io/service-account-approval"
 const workflowApprovalKeyName = "dspo-workflow-approval"
-const workflowApprovalAPIRequest = "pipelines.opendatahub.io/authorize-scheduled-workflow"
 
 type workflowApproval struct {
 	Namespace string `json:"namespace"`
